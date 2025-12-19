@@ -40,7 +40,7 @@ class YDocExtension(ExtensionApp):
     Enables Real Time Collaboration in JupyterLab
     """
 
-    disable_rtc = Bool(False, config=True, help="Whether to disable real time collaboration.")
+    disable_rtc = Bool(True, config=True, help="Whether to disable real time collaboration.")
 
     file_poll_interval = Float(
         1,
