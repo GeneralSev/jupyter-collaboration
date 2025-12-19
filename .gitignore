@@ -135,3 +135,5 @@ packages/docprovider/junit.xml
 
 
 .idea/
+
+.jupyter_releaser_checkout/
