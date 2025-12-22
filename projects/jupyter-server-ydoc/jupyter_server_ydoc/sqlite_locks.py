@@ -43,11 +43,15 @@ class SQLiteDocumentLockManager:
         self.ttl_seconds = ttl_seconds
         self.busy_timeout_ms = busy_timeout_ms
 
-        # make db_path parent directory and give set permissions (666 = -rw-rw-rw-)
-        subprocess.run(["sudo", "mkdir", "-m", "666", "-p", str(self.db_path.parent)],
-                       stdout=subprocess.PIPE,
-                       stderr=subprocess.PIPE
-                       )
+        # NOTE:
+        # This will not work on Jupyter VM because this python process will not have read-write access to /srv
+        # The directory and db file will have to be created manually with the correct permissions. E.g.:
+        #
+        #   sudo mkdir -p 666 /srv/collaboration
+        #   sudo touch /srv/collaboration/collaboration_locks.db
+        #   sudo chmod 666 /srv/collaboration/collaboration_locks.db
+        #   sudo chown root:root /srv/collaboration/collaboration_locks.db
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._init_db()
 
     # ---------- public async API ----------
@@ -78,9 +82,6 @@ class SQLiteDocumentLockManager:
 
     def _init_db(self) -> None:
         con = self._connect()
-
-        # Check if database is being created
-        db_already_exists = self.db_path.exists()
 
         try:
             con.execute(
@@ -114,18 +115,6 @@ class SQLiteDocumentLockManager:
             con.commit()
         finally:
             con.close()
-
-        # Set permissions to 666 (rw-rw-rw-) if database was just created
-        if not db_already_exists:
-            os.chmod(self.db_path, 0o666)
-
-            # Also set permissions on WAL and SHM files if they exist
-            wal_path = Path(f"{self.db_path}-wal")
-            shm_path = Path(f"{self.db_path}-shm")
-            if wal_path.exists():
-                os.chmod(wal_path, 0o666)
-            if shm_path.exists():
-                os.chmod(shm_path, 0o666)
 
     def _is_expired(self, heartbeat_at: float) -> bool:
         """
