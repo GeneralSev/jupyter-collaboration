@@ -7,6 +7,7 @@ import asyncio
 import json
 import uuid
 from logging import Logger
+from pathlib import Path
 from typing import Any
 from typing import cast
 from uuid import uuid4
@@ -45,6 +46,10 @@ SERVER_SESSION = str(uuid.uuid4())
 FORK_DOCUMENTS = {}
 FORK_ROOMS: dict[str, dict[str, str]] = {}
 
+
+# FIXME (DB) locks only get assigned for a file the first time to a user. If a user closes the notebook and opens it again, lock is not assigned to the user -- DB 22.Dec.2025
+# TODO (DBN) file keeps trying to load for other user, stop it with an error -- DBN 22.Dec.2025
+# FIXME (DB) lock not released on server timeout  -- DB 22.Dec.2025
 
 class YDocWebSocketHandler(WebSocketHandler, JupyterHandler):
     """`YDocWebSocketHandler` uses the singleton pattern for ``WebsocketServer``,
@@ -201,14 +206,33 @@ class YDocWebSocketHandler(WebSocketHandler, JupyterHandler):
         """
         Generates a unique lock key for a given file based on its ID and type.
         """
-        # FIXME (DB) locks only get assigned for a file the first time to a user. If a user closes the notebook and opens it again, lock is not assigned to the user -- DB 22.Dec.2025
-        # TODO (DBN) file keeps trying to load for other user, stop it with an error -- DBN 22.Dec.2025
-        # FIXME (DB) lock not released on server timeout  -- DB 22.Dec.2025
-        # Make it stable across servers:
-        path = self._file_id_manager.get_path(file_id)
-        # include file_type to avoid collisions if you want
-        # TODO (DBN) convert paths to absolute, as otherwise paths can be the same in user homes -- DBN 22.Dec.2025
-        return f"{file_type}:{path}"
+        rel_path = self._file_id_manager.get_path(file_id)
+        if rel_path is None:
+            # Fallback: should be rare; still produce a deterministic key
+            return f"{file_type}:<unknown>:{file_id}"
+
+        # If rel_path starts with "/", treat it as filesystem-ish and strip leading slash
+        # because it might be a contents API path rather than a real absolute FS path.
+        rel_path_clean = rel_path.lstrip("/")
+
+        contents_mgr = self.settings.get("contents_manager")
+        root_dir = getattr(contents_mgr, "root_dir", None)
+        if root_dir:
+            base = Path(root_dir)
+            abs_path = (base / rel_path_clean).resolve()
+            # Optional safety check: ensure the resolved path stays under root_dir
+            # (prevents path traversal from affecting the lock key)
+            try:
+                abs_path.relative_to(base.resolve())
+            except ValueError:
+                # If it escapes root_dir, fall back to anchoring under root_dir without traversal
+                abs_path = (base / Path(rel_path_clean).name).resolve()
+        else:
+            # Fallback if root_dir isn't available: resolve relative to current working directory
+            abs_path = Path(rel_path_clean).resolve()
+
+        # Use POSIX form for stable string keys even if underlying OS differs
+        return f"{file_type}:{abs_path.as_posix()}"
 
     async def _heartbeat_lock(self) -> None:
         # heartbeat every ttl/3 seconds (tunable)
