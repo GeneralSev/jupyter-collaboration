@@ -8,13 +8,14 @@ import json
 import uuid
 from logging import Logger
 from typing import Any
-from uuid import uuid4
 from typing import cast
+from uuid import uuid4
 
 from jupyter_server.auth import authorized
 from jupyter_server.base.handlers import APIHandler, JupyterHandler
 from jupyter_server.utils import ensure_async
 from jupyter_ydoc import ydocs as YDOCS
+from pycrdt import Decoder
 from pycrdt import Doc, Encoder, UndoManager
 from pycrdt.store import BaseYStore
 from pycrdt.websocket import YRoom
@@ -23,6 +24,7 @@ from tornado.websocket import WebSocketHandler
 
 from .loaders import FileLoaderMapping
 from .rooms import DocumentRoom, TransientRoom
+from .sqlite_locks import SQLiteDocumentLockManager
 from .utils import (
     JUPYTER_COLLABORATION_AWARENESS_EVENTS_URI,
     JUPYTER_COLLABORATION_EVENTS_URI,
@@ -32,12 +34,12 @@ from .utils import (
     encode_file_path,
     room_id_from_encoded_path,
 )
-from .websocketserver import JupyterWebsocketServer, RoomNotFound
 from .utils import MessageType
-from pycrdt import Decoder
+from .websocketserver import JupyterWebsocketServer, RoomNotFound
+
+LOCKED_HTTP_STATUS = 423  # https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Status/423
 
 YFILE = YDOCS["file"]
-
 
 SERVER_SESSION = str(uuid.uuid4())
 FORK_DOCUMENTS = {}
@@ -116,23 +118,50 @@ class YDocWebSocketHandler(WebSocketHandler, JupyterHandler):
                             "There is another collaborative session accessing the same file.\nThe synchronization between rooms is not supported and you might lose some of your changes.",
                         )
 
-                    file = self._file_loaders[file_id]
-                    updates_file_path = f".{file_type}:{file_id}.y"
-                    ystore = self._ystore_class(
-                        path=updates_file_path,
-                        log=self.log,
-                    )
-                    self.room = DocumentRoom(
-                        self._room_id,
-                        file_format,
-                        file_type,
-                        file,
-                        self.event_logger,
-                        ystore,
-                        self.log,
-                        exception_handler=exception_logger,
-                        save_delay=self._document_save_delay,
-                    )
+                    #
+                    # --------- File locking per user
+                    lock_mgr: SQLiteDocumentLockManager = self.settings["collaborative_lock_manager"]
+                    owner = self.current_user.username
+                    lock_key = self._lock_key_for(file_id, file_type)
+
+                    lock_acquired, lock_info = await lock_mgr.try_acquire(lock_key, owner)
+                    if not lock_acquired:
+                        raise web.HTTPError(
+                            LOCKED_HTTP_STATUS,
+                            reason=f"File is currently opened by another user: {lock_info.owner}."
+                        )
+
+                    # remember for release + heartbeat
+                    self._locked_key = lock_key
+                    self._lock_owner = owner
+                    self._lock_mgr = lock_mgr
+                    self._lock_heartbeat_task = asyncio.create_task(self._heartbeat_lock())
+                    # --------- File locking per user
+                    #
+
+                    try:
+                        file = self._file_loaders[file_id]
+                        updates_file_path = f".{file_type}:{file_id}.y"
+                        ystore = self._ystore_class(
+                            path=updates_file_path,
+                            log=self.log,
+                        )
+                        self.room = DocumentRoom(
+                            self._room_id,
+                            file_format,
+                            file_type,
+                            file,
+                            self.event_logger,
+                            ystore,
+                            self.log,
+                            exception_handler=exception_logger,
+                            save_delay=self._document_save_delay,
+                        )
+                    except Exception:
+                        await lock_mgr.release(lock_key, owner)
+                        if getattr(self, "_lock_heartbeat_task", None):
+                            self._lock_heartbeat_task.cancel()
+                        raise
 
                 else:
                     # TransientRoom
@@ -167,6 +196,35 @@ class YDocWebSocketHandler(WebSocketHandler, JupyterHandler):
                     self._emit(LogLevel.INFO, "clean", "file loader removed.")
                 raise e
             self._websocket_server.add_room(self._room_id, self.room)
+
+    def _lock_key_for(self, file_id: str, file_type: str) -> str:
+        """
+        Generates a unique lock key for a given file based on its ID and type.
+        """
+        # Make it stable across servers:
+        path = self._file_id_manager.get_path(file_id)
+        # include file_type to avoid collisions if you want
+        return f"{file_type}:{path}"
+
+    async def _heartbeat_lock(self) -> None:
+        # heartbeat every ttl/3 seconds (tunable)
+        ttl = float(self.settings.get("collaborative_lock_ttl_seconds", 120.0))
+        interval = max(5.0, ttl / 3.0)
+
+        while True:
+            try:
+                await asyncio.sleep(interval)
+            except asyncio.CancelledError:
+                return
+
+            try:
+                ok = await self._lock_mgr.heartbeat(self._locked_key, self._lock_owner)
+                if not ok:
+                    # If heartbeat fails, lock is gone or stolen — best effort:
+                    return
+            except Exception:
+                # don't crash the handler; best effort
+                return
 
     def initialize(
         self,
@@ -335,8 +393,16 @@ class YDocWebSocketHandler(WebSocketHandler, JupyterHandler):
         """
         On connection close.
         """
-        # stop serving this client
         self._message_queue.put_nowait(b"")
+
+        # release lock + stop heartbeat
+        if getattr(self, "_lock_heartbeat_task", None):
+            self._lock_heartbeat_task.cancel()
+
+        if getattr(self, "_locked_key", None) and getattr(self, "_lock_owner", None):
+            asyncio.create_task(self._lock_mgr.release(self._locked_key, self._lock_owner))
+
+        # stop serving this client
         if isinstance(self.room, DocumentRoom) and self.room.clients == {self}:
             # no client in this room after we disconnect
             # keep the document for a while in case someone reconnects
