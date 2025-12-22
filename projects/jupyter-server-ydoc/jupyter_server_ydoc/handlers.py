@@ -264,10 +264,9 @@ class YDocWebSocketHandler(WebSocketHandler, JupyterHandler):
         """
         if getattr(self, "_lock_denied", False):
             self.close(
-                4003,
+                1003,
                 getattr(self, "_lock_denied_reason", "File is currently in use by another user.")
             )
-            return
 
         self.create_task(self._websocket_server.serve(self))
 
