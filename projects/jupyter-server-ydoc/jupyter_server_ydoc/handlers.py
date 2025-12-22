@@ -25,7 +25,7 @@ from tornado.websocket import WebSocketHandler
 
 from .loaders import FileLoaderMapping
 from .rooms import DocumentRoom, TransientRoom
-from .sqlite_locks import SQLiteDocumentLockManager
+from .sqlite_locks import SQLiteDocumentLockManager, FOLDERS_FOR_FILE_LOCKING
 from .utils import (
     JUPYTER_COLLABORATION_AWARENESS_EVENTS_URI,
     JUPYTER_COLLABORATION_EVENTS_URI,
@@ -88,28 +88,33 @@ class YDocWebSocketHandler(WebSocketHandler, JupyterHandler):
         # Get room
         self._room_id: str = room_id_from_encoded_path(self.request.path)
 
-        # manage file locking
+        # --------- START: manage file locking
         if self._room_id.count(":") >= 2:
             file_format, file_type, file_id = decode_file_path(self._room_id)
 
-            self._file_id = file_id
-            self._file_type = file_type
+            file_rel_path = self._file_id_manager.get_path(file_id)  # relative to user home folder
 
-            self._lock_owner = self.current_user.username
-            self._lock_key = self._get_lock_key_for(file_id, file_type)
+            file_rel_path_first_part = Path(file_rel_path).parts[0]
 
-            lock_mgr: SQLiteDocumentLockManager = self.settings["collaborative_lock_manager"]
+            if file_rel_path_first_part in FOLDERS_FOR_FILE_LOCKING:
+                self._file_id = file_id
+                self._file_type = file_type
+                self._lock_owner = self.current_user.username
+                self._lock_key = f"{file_type}:{file_rel_path}"
 
-            acquired, info = await lock_mgr.try_acquire(self._lock_key, self._lock_owner)
-            if not acquired:
-                raise web.HTTPError(
-                    423,
-                    reason=f"File is currently in use by another user: {info.owner}."
-                )
+                lock_mgr: SQLiteDocumentLockManager = self.settings["collaborative_lock_manager"]
 
-            # start heartbeat for this connection
-            self._lock_mgr = lock_mgr
-            self._lock_heartbeat_task = asyncio.create_task(self._heartbeat_lock())
+                acquired, info = await lock_mgr.try_acquire(self._lock_key, self._lock_owner)
+                if not acquired:
+                    raise web.HTTPError(
+                        423,
+                        reason=f"File is currently in use by another user: {info.owner.upper()}."
+                    )
+
+                # start heartbeat for this connection
+                self._lock_mgr = lock_mgr
+                self._lock_heartbeat_task = asyncio.create_task(self._heartbeat_lock())
+        # --------- END: manage file locking
 
         async with self._room_lock(self._room_id):
             if self._websocket_server.room_exists(self._room_id):
@@ -357,33 +362,6 @@ class YDocWebSocketHandler(WebSocketHandler, JupyterHandler):
         encoder.write_var_string(json.dumps(message))
         return encoder.to_bytes()
 
-    def _get_lock_key_for(self, file_id: str, file_type: str) -> str:
-        """
-        Generates a unique lock key for a given file based on its ID and type.
-        """
-        rel_path = self._file_id_manager.get_path(file_id)
-        if rel_path is None:
-            return f"{file_type}:<unknown>:{file_id}"
-
-        # If rel_path starts with "/", treat it as filesystem-ish and strip leading slash
-        # because it might be a contents API path rather than a real absolute FS path.
-        rel_path_clean = rel_path.lstrip("/")
-
-        contents_mgr = self.settings.get("contents_manager")
-        root_dir = getattr(contents_mgr, "root_dir", None)
-        if root_dir:
-            base = Path(root_dir)
-            abs_path = (base / rel_path_clean).resolve()
-            try:
-                abs_path.relative_to(base.resolve())
-            except ValueError:
-                abs_path = (base / Path(rel_path_clean).name).resolve()
-        else:
-            abs_path = Path(rel_path_clean).resolve()
-
-        # Use POSIX form for stable string keys even if underlying OS differs
-        return f"{file_type}:{abs_path.as_posix()}"
-
     async def _heartbeat_lock(self) -> None:
         # heartbeat every ttl/3 seconds (tunable)
         ttl = float(self.settings.get("collaborative_lock_ttl_seconds", 120.0))
@@ -552,47 +530,16 @@ class DocSessionHandler(APIHandler):
         if idx is not None:
             #
             # Early fail: if file is locked, don't keep trying to open it (spinning wheel on frontend)
-            # TODO (DBN) remove repeated method -- DBN 22.Dec.2025
-            def _get_lock_key_for(file_id: str, file_type: str) -> str:
-                """
-                Generates a unique lock key for a given file based on its ID and type.
-                """
-                rel_path = file_id_manager.get_path(file_id)
-                if rel_path is None:
-                    return f"{file_type}:<unknown>:{file_id}"
-
-                # If rel_path starts with "/", treat it as filesystem-ish and strip leading slash
-                # because it might be a contents API path rather than a real absolute FS path.
-                rel_path_clean = rel_path.lstrip("/")
-
-                contents_mgr = self.settings.get("contents_manager")
-                root_dir = getattr(contents_mgr, "root_dir", None)
-                if root_dir:
-                    base = Path(root_dir)
-                    abs_path = (base / rel_path_clean).resolve()
-                    try:
-                        abs_path.relative_to(base.resolve())
-                    except ValueError:
-                        abs_path = (base / Path(rel_path_clean).name).resolve()
-                else:
-                    abs_path = Path(rel_path_clean).resolve()
-
-                # Use POSIX form for stable string keys even if underlying OS differs
-                return f"{file_type}:{abs_path.as_posix()}"
-
             lock_mgr: SQLiteDocumentLockManager = self.settings["collaborative_lock_manager"]
             owner = self.current_user.username
-
-            # Need file_type from request body
-            content_type = body["type"]  # already read
-            lock_key = _get_lock_key_for(idx, content_type)  # see note below
+            lock_key = f"{content_type}:{idx}"
 
             acquired, info = await lock_mgr.try_acquire(lock_key, owner)
             if not acquired:
                 self.set_status(423)
                 return self.finish(json.dumps({
                     "code": 423,
-                    "error": f"File is currently in use by another user: {info.owner}."
+                    "error": f"File is currently in use by another user: {info.owner.upper()}."
                 }))
             else:
                 # don't hold lock here — session endpoint should be non-locking

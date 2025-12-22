@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import asyncio
-import os
 import sqlite3
-import subprocess
 import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Tuple
+
+FOLDERS_FOR_FILE_LOCKING = ["Projects", "Personal"]
 
 
 @dataclass
