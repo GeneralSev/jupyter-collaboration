@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import os
 import sqlite3
+import subprocess
 import time
 from dataclasses import dataclass
 from typing import Optional, Tuple
@@ -40,7 +41,12 @@ class SQLiteDocumentLockManager:
         self.db_path = db_path
         self.ttl_seconds = ttl_seconds
         self.busy_timeout_ms = busy_timeout_ms
-        os.makedirs(os.path.dirname(db_path) or ".", exist_ok=True)
+
+        # make db_path parent directory and give set permissions (646 = -rw-r--rw-)
+        subprocess.run(["sudo", "mkdir", "-m", "664", "-p", os.path.dirname(db_path)],
+                       stdout=subprocess.PIPE,
+                       stderr=subprocess.PIPE
+                       )
         self._init_db()
 
     # ---------- public async API ----------
