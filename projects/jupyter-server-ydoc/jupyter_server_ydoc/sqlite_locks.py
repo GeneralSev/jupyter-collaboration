@@ -176,7 +176,7 @@ class SQLiteDocumentLockManager:
             if row is None:
                 con.execute(
                     "INSERT INTO doc_locks(lock_key, owner, acquired_at, heartbeat_at, connections) VALUES(?,?,?,?,1)",
-                    (lock_key, owner, float(now), float(now)),
+                    (lock_key, owner, now, now),
                 )
                 con.commit()
                 return True, None
@@ -200,7 +200,7 @@ class SQLiteDocumentLockManager:
                         connections=1
                     WHERE lock_key = ?
                     """,
-                    (owner, float(now), float(now), lock_key),
+                    (owner, now, now, lock_key),
                 )
                 con.commit()
                 return True, info
@@ -215,7 +215,7 @@ class SQLiteDocumentLockManager:
                     WHERE lock_key = ?
                       AND owner = ?
                     """,
-                    (float(now), lock_key, owner),
+                    (now, lock_key, owner),
                 )
                 con.commit()
                 return True, info
@@ -248,7 +248,7 @@ class SQLiteDocumentLockManager:
             else:
                 con.execute(
                     "UPDATE doc_locks SET connections=connections-1, heartbeat_at=? WHERE lock_key=? AND owner=?",
-                    (float(time.time()), lock_key, owner),
+                    (time.time(), lock_key, owner),
                 )
             con.commit()
             return True
@@ -263,7 +263,7 @@ class SQLiteDocumentLockManager:
         try:
             res = con.execute(
                 "UPDATE doc_locks SET heartbeat_at=? WHERE lock_key=? AND owner=?",
-                (float(time.time()), lock_key, owner),
+                (time.time(), lock_key, owner),
             )
             con.commit()
             return res.rowcount == 1
