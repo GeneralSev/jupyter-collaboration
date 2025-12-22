@@ -201,9 +201,13 @@ class YDocWebSocketHandler(WebSocketHandler, JupyterHandler):
         """
         Generates a unique lock key for a given file based on its ID and type.
         """
+        # FIXME (DB) locks only get assigned for a file the first time to a user. If a user closes the notebook and opens it again, lock is not assigned to the user -- DB 22.Dec.2025
+        # TODO (DBN) file keeps trying to load for other user, stop it with an error -- DBN 22.Dec.2025
+        # FIXME (DB) lock not released on server timeout  -- DB 22.Dec.2025
         # Make it stable across servers:
         path = self._file_id_manager.get_path(file_id)
         # include file_type to avoid collisions if you want
+        # TODO (DBN) convert paths to absolute, as otherwise paths can be the same in user homes -- DBN 22.Dec.2025
         return f"{file_type}:{path}"
 
     async def _heartbeat_lock(self) -> None:

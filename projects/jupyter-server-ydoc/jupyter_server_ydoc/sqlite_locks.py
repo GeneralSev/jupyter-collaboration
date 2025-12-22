@@ -6,6 +6,7 @@ import sqlite3
 import subprocess
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Optional, Tuple
 
 
@@ -21,7 +22,7 @@ class LockInfo:
 class SQLiteDocumentLockManager:
     def __init__(
             self,
-            db_path: str,
+            db_path: str | Path,
             *,
             ttl_seconds: float = 120,
             busy_timeout_ms: int = 5000,
@@ -38,12 +39,12 @@ class SQLiteDocumentLockManager:
         busy_timeout_ms: int, optional
             The time, in milliseconds, for which the database access can block if it is busy. Default is 5000.
         """
-        self.db_path = db_path
+        self.db_path = Path(db_path)
         self.ttl_seconds = ttl_seconds
         self.busy_timeout_ms = busy_timeout_ms
 
-        # make db_path parent directory and give set permissions (646 = -rw-r--rw-)
-        subprocess.run(["sudo", "mkdir", "-m", "664", "-p", os.path.dirname(db_path)],
+        # make db_path parent directory and give set permissions (666 = -rw-rw-rw-)
+        subprocess.run(["sudo", "mkdir", "-m", "666", "-p", str(self.db_path.parent)],
                        stdout=subprocess.PIPE,
                        stderr=subprocess.PIPE
                        )
@@ -77,6 +78,10 @@ class SQLiteDocumentLockManager:
 
     def _init_db(self) -> None:
         con = self._connect()
+
+        # Check if database is being created
+        db_already_exists = self.db_path.exists()
+
         try:
             con.execute(
                 """
@@ -109,6 +114,18 @@ class SQLiteDocumentLockManager:
             con.commit()
         finally:
             con.close()
+
+        # Set permissions to 666 (rw-rw-rw-) if database was just created
+        if not db_already_exists:
+            os.chmod(self.db_path, 0o666)
+
+            # Also set permissions on WAL and SHM files if they exist
+            wal_path = Path(f"{self.db_path}-wal")
+            shm_path = Path(f"{self.db_path}-shm")
+            if wal_path.exists():
+                os.chmod(wal_path, 0o666)
+            if shm_path.exists():
+                os.chmod(shm_path, 0o666)
 
     def _is_expired(self, heartbeat_at: float) -> bool:
         """
