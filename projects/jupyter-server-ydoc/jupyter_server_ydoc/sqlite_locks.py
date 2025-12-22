@@ -26,10 +26,9 @@ class SQLiteDocumentLockManager:
             *,
             ttl_seconds: float = 120,
             busy_timeout_ms: int = 5000,
+            cleanup_on_access: bool = True,
     ) -> None:
-        """
-        Cross-process exclusive locks stored in SQLite. Safe for multiple processes if they all point to the same DB
-        file on a filesystem that supports file locks.
+        """Cross-process exclusive locks stored in SQLite.
 
         Parameters:
         db_path: str
@@ -38,10 +37,13 @@ class SQLiteDocumentLockManager:
             The time-to-live (TTL) for each lock before it expires without a heartbeat.
         busy_timeout_ms: int, optional
             The time, in milliseconds, for which the database access can block if it is busy. Default is 5000.
+        cleanup_on_access: bool
+            Expired locks are automatically deleted on every operation.
         """
         self.db_path = Path(db_path)
-        self.ttl_seconds = ttl_seconds
-        self.busy_timeout_ms = busy_timeout_ms
+        self.ttl_seconds = float(ttl_seconds)
+        self.busy_timeout_ms = int(busy_timeout_ms)
+        self.cleanup_on_access = bool(cleanup_on_access)
 
         # NOTE:
         # This will not work on Jupyter VM because this python process will not have read-write access to /srv
@@ -55,7 +57,6 @@ class SQLiteDocumentLockManager:
         self._init_db()
 
     # ---------- public async API ----------
-
     async def try_acquire(self, lock_key: str, owner: str) -> Tuple[bool, Optional[LockInfo]]:
         return await asyncio.to_thread(self._try_acquire_sync, lock_key, owner)
 
@@ -66,10 +67,7 @@ class SQLiteDocumentLockManager:
         return await asyncio.to_thread(self._heartbeat_sync, lock_key, owner)
 
     # ---------- internal sync implementation ----------
-
     def _connect(self) -> sqlite3.Connection:
-        # check_same_thread=False allows using connection in background threads if needed,
-        # but here we create a fresh connection per call anyway.
         con = sqlite3.connect(self.db_path, timeout=self.busy_timeout_ms / 1000.0)
         con.row_factory = sqlite3.Row
         con.execute("PRAGMA journal_mode=WAL;")
@@ -79,41 +77,29 @@ class SQLiteDocumentLockManager:
 
     def _init_db(self) -> None:
         con = self._connect()
-
         try:
             con.execute(
                 """
                 CREATE TABLE IF NOT EXISTS doc_locks
                 (
-                    lock_key
-                    TEXT
-                    PRIMARY
-                    KEY,
-                    owner
-                    TEXT
-                    NOT
-                    NULL,
-                    acquired_at
-                    REAL
-                    NOT
-                    NULL,
-                    heartbeat_at
-                    REAL
-                    NOT
-                    NULL,
-                    connections
-                    INTEGER
-                    NOT
-                    NULL
+                    lock_key TEXT PRIMARY KEY,
+                    owner TEXT NOT NULL,
+                    acquired_at REAL NOT NULL,
+                    heartbeat_at REAL NOT NULL,
+                    connections INTEGER NOT NULL
                 );
                 """
             )
             con.execute("CREATE INDEX IF NOT EXISTS idx_doc_locks_owner ON doc_locks(owner);")
+            # Helps cleanup queries.
+            con.execute(
+                "CREATE INDEX IF NOT EXISTS idx_doc_locks_heartbeat_at ON doc_locks(heartbeat_at);"
+            )
             con.commit()
         finally:
             con.close()
 
-    def _is_expired(self, heartbeat_at: float) -> bool:
+    def _is_expired(self, heartbeat_at: float, now: Optional[float] = None) -> bool:
         """
         Determines if the given heartbeat timestamp is considered expired based on the time-to-live (TTL) threshold.
 
@@ -123,7 +109,15 @@ class SQLiteDocumentLockManager:
         Returns:
         bool: True if the heartbeat is expired, False otherwise.
         """
-        return (time.time() - heartbeat_at) > self.ttl_seconds
+        now = time.time() if now is None else now
+        return (now - heartbeat_at) > self.ttl_seconds
+
+    def _purge_expired_in_tx(self, con: sqlite3.Connection, now: float) -> None:
+        """Delete expired locks inside an existing transaction."""
+        con.execute(
+            "DELETE FROM doc_locks WHERE (? - heartbeat_at) > ?",
+            (now, self.ttl_seconds),
+        )
 
     def _try_acquire_sync(self, lock_key: str, owner: str) -> Tuple[bool, Optional[LockInfo]]:
         """
@@ -165,17 +159,23 @@ class SQLiteDocumentLockManager:
         now = time.time()
         con = self._connect()
         try:
-            # BEGIN IMMEDIATE ensures we take a write lock early, preventing racey inserts.
+            # Take write lock early to avoid races.
             con.execute("BEGIN IMMEDIATE;")
 
+            if self.cleanup_on_access:
+                self._purge_expired_in_tx(con, now)
+
             row = con.execute(
-                "SELECT lock_key, owner, acquired_at, heartbeat_at, connections FROM doc_locks WHERE lock_key=?",
+                "SELECT lock_key, owner, acquired_at, heartbeat_at, connections "
+                "FROM doc_locks WHERE lock_key=?",
                 (lock_key,),
             ).fetchone()
 
+            # Not locked -> acquire.
             if row is None:
                 con.execute(
-                    "INSERT INTO doc_locks(lock_key, owner, acquired_at, heartbeat_at, connections) VALUES(?,?,?,?,1)",
+                    "INSERT INTO doc_locks(lock_key, owner, acquired_at, heartbeat_at, connections) "
+                    "VALUES(?,?,?,?,1)",
                     (lock_key, owner, now, now),
                 )
                 con.commit()
@@ -189,23 +189,18 @@ class SQLiteDocumentLockManager:
                 connections=row["connections"],
             )
 
-            # If expired, steal the lock
-            if self._is_expired(info.heartbeat_at):
+            # If expired (can happen if cleanup_on_access=False), replace it.
+            if self._is_expired(info.heartbeat_at, now=now):
+                con.execute("DELETE FROM doc_locks WHERE lock_key=?", (lock_key,))
                 con.execute(
-                    """
-                    UPDATE doc_locks
-                    SET owner=?,
-                        acquired_at=?,
-                        heartbeat_at=?,
-                        connections=1
-                    WHERE lock_key = ?
-                    """,
-                    (owner, now, now, lock_key),
+                    "INSERT INTO doc_locks(lock_key, owner, acquired_at, heartbeat_at, connections) "
+                    "VALUES(?,?,?,?,1)",
+                    (lock_key, owner, now, now),
                 )
                 con.commit()
                 return True, info
 
-            # If same owner, allow re-entrant (multi-tab). Remove this if you want strict single-connection.
+            # Same owner -> re-entrant lock (multi-tab).
             if info.owner == owner:
                 con.execute(
                     """
@@ -220,7 +215,7 @@ class SQLiteDocumentLockManager:
                 con.commit()
                 return True, info
 
-            # Held by someone else and not expired
+            # Held by someone else and not expired.
             con.commit()
             return False, info
 
@@ -231,13 +226,19 @@ class SQLiteDocumentLockManager:
             con.close()
 
     def _release_sync(self, lock_key: str, owner: str) -> bool:
+        now = time.time()
         con = self._connect()
         try:
             con.execute("BEGIN IMMEDIATE;")
+
+            if self.cleanup_on_access:
+                self._purge_expired_in_tx(con, now)
+
             row = con.execute(
                 "SELECT connections FROM doc_locks WHERE lock_key=? AND owner=?",
                 (lock_key, owner),
             ).fetchone()
+
             if row is None:
                 con.commit()
                 return False
@@ -247,11 +248,14 @@ class SQLiteDocumentLockManager:
                 con.execute("DELETE FROM doc_locks WHERE lock_key=? AND owner=?", (lock_key, owner))
             else:
                 con.execute(
-                    "UPDATE doc_locks SET connections=connections-1, heartbeat_at=? WHERE lock_key=? AND owner=?",
-                    (time.time(), lock_key, owner),
+                    "UPDATE doc_locks SET connections=connections-1, heartbeat_at=? "
+                    "WHERE lock_key=? AND owner=?",
+                    (now, lock_key, owner),
                 )
+
             con.commit()
             return True
+
         except Exception:
             con.rollback()
             raise
@@ -259,13 +263,23 @@ class SQLiteDocumentLockManager:
             con.close()
 
     def _heartbeat_sync(self, lock_key: str, owner: str) -> bool:
+        now = time.time()
         con = self._connect()
         try:
+            con.execute("BEGIN IMMEDIATE;")
+
+            if self.cleanup_on_access:
+                self._purge_expired_in_tx(con, now)
+
             res = con.execute(
                 "UPDATE doc_locks SET heartbeat_at=? WHERE lock_key=? AND owner=?",
-                (time.time(), lock_key, owner),
+                (now, lock_key, owner),
             )
             con.commit()
             return res.rowcount == 1
+
+        except Exception:
+            con.rollback()
+            raise
         finally:
             con.close()
