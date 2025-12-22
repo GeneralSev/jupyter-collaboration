@@ -50,7 +50,7 @@ class YDocExtension(ExtensionApp):
     )
 
     lock_ttl_seconds = Float(
-        60.0,
+        120.0,
         # TODO (DBN) change to 600 after testing -- DBN 22.Dec.2025
         config=True,
         help="Seconds after which a lock is considered stale if no heartbeat."
