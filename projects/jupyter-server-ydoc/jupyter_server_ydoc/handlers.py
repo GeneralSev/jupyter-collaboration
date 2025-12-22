@@ -106,6 +106,12 @@ class YDocWebSocketHandler(WebSocketHandler, JupyterHandler):
 
                 acquired, info = await lock_mgr.try_acquire(self._lock_key, self._lock_owner)
                 if not acquired:
+                    self._lock_denied = True
+                    self._lock_denied_reason = f"File is currently in use by another user: {info.owner.upper()}."
+                    self.log.warning(
+                        "Lock denied for %s (room=%s). Requested by=%s, locked by=%s",
+                        self._lock_key, self._room_id, self._lock_owner, info.owner
+                    )
                     raise web.HTTPError(
                         423,
                         reason=f"File is currently in use by another user: {info.owner.upper()}."
@@ -256,6 +262,13 @@ class YDocWebSocketHandler(WebSocketHandler, JupyterHandler):
         """
         On connection open.
         """
+        if getattr(self, "_lock_denied", False):
+            self.close(
+                4003,
+                getattr(self, "_lock_denied_reason", "File is currently in use by another user.")
+            )
+            return
+
         self.create_task(self._websocket_server.serve(self))
 
         if isinstance(self.room, DocumentRoom):
@@ -527,12 +540,14 @@ class DocSessionHandler(APIHandler):
 
         idx = file_id_manager.get_id(path)
 
-        if idx is not None:
-            #
-            # Early fail: if file is locked, don't keep trying to open it (spinning wheel on frontend)
+        #
+        # START: Early fail if file is locked, don't keep trying to open it (spinning wheel on frontend)
+        file_rel_path = file_id_manager.get_path(idx)
+        file_rel_path_first_part = Path(file_rel_path).parts[0]
+        if file_rel_path_first_part in FOLDERS_FOR_FILE_LOCKING:
             lock_mgr: SQLiteDocumentLockManager = self.settings["collaborative_lock_manager"]
             owner = self.current_user.username
-            lock_key = f"{content_type}:{idx}"
+            lock_key = f"{content_type}:{file_rel_path}"
 
             acquired, info = await lock_mgr.try_acquire(lock_key, owner)
             if not acquired:
@@ -544,9 +559,10 @@ class DocSessionHandler(APIHandler):
             else:
                 # don't hold lock here — session endpoint should be non-locking
                 await lock_mgr.release(lock_key, owner)
-            # End of Early fail based on file locks
-            #
+        # END: Early fail
+        #
 
+        if idx is not None:
             # index already exists
             self.log.info("Request for Y document '%s' with room ID: %s", path, idx)
             data = json.dumps(
