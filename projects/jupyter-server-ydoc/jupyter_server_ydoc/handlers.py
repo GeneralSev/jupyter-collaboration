@@ -47,7 +47,7 @@ FORK_DOCUMENTS = {}
 FORK_ROOMS: dict[str, dict[str, str]] = {}
 
 
-# FIXME (DB) locks only get assigned for a file the first time to a user. If a user closes the notebook and opens it again, lock is not assigned to the user -- DB 22.Dec.2025
+# FIXME (DB) locks only get assigned for a file the first time for a user. If the user closes the file and opens it again, lock is not assigned again to the user -- DB 22.Dec.2025
 # TODO (DBN) file keeps trying to load for other user, stop it with an error -- DBN 22.Dec.2025
 # FIXME (DB) lock not released on server timeout  -- DB 22.Dec.2025
 
@@ -127,7 +127,7 @@ class YDocWebSocketHandler(WebSocketHandler, JupyterHandler):
                     # --------- File locking per user
                     lock_mgr: SQLiteDocumentLockManager = self.settings["collaborative_lock_manager"]
                     owner = self.current_user.username
-                    lock_key = self._lock_key_for(file_id, file_type)
+                    lock_key = self._get_lock_key_for(file_id, file_type)
 
                     lock_acquired, lock_info = await lock_mgr.try_acquire(lock_key, owner)
                     if not lock_acquired:
@@ -202,13 +202,12 @@ class YDocWebSocketHandler(WebSocketHandler, JupyterHandler):
                 raise e
             self._websocket_server.add_room(self._room_id, self.room)
 
-    def _lock_key_for(self, file_id: str, file_type: str) -> str:
+    def _get_lock_key_for(self, file_id: str, file_type: str) -> str:
         """
         Generates a unique lock key for a given file based on its ID and type.
         """
         rel_path = self._file_id_manager.get_path(file_id)
         if rel_path is None:
-            # Fallback: should be rare; still produce a deterministic key
             return f"{file_type}:<unknown>:{file_id}"
 
         # If rel_path starts with "/", treat it as filesystem-ish and strip leading slash
@@ -220,15 +219,11 @@ class YDocWebSocketHandler(WebSocketHandler, JupyterHandler):
         if root_dir:
             base = Path(root_dir)
             abs_path = (base / rel_path_clean).resolve()
-            # Optional safety check: ensure the resolved path stays under root_dir
-            # (prevents path traversal from affecting the lock key)
             try:
                 abs_path.relative_to(base.resolve())
             except ValueError:
-                # If it escapes root_dir, fall back to anchoring under root_dir without traversal
                 abs_path = (base / Path(rel_path_clean).name).resolve()
         else:
-            # Fallback if root_dir isn't available: resolve relative to current working directory
             abs_path = Path(rel_path_clean).resolve()
 
         # Use POSIX form for stable string keys even if underlying OS differs
