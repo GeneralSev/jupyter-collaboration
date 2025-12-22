@@ -45,10 +45,6 @@ FORK_DOCUMENTS = {}
 FORK_ROOMS: dict[str, dict[str, str]] = {}
 
 
-# FIXME (DB) locks only get assigned for a file the first time for a user. If the user closes the file and opens it again, lock is not assigned again to the user -- DB 22.Dec.2025
-# TODO (DBN) file keeps trying to load for other user, stop it with an error -- DBN 22.Dec.2025
-# FIXME (DB) lock not released on server timeout  -- DB 22.Dec.2025
-
 class YDocWebSocketHandler(WebSocketHandler, JupyterHandler):
     """`YDocWebSocketHandler` uses the singleton pattern for ``WebsocketServer``,
     which is a subclass of ypy-websocket's ``WebsocketServer``.
