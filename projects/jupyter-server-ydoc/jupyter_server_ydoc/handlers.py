@@ -364,8 +364,8 @@ class YDocWebSocketHandler(WebSocketHandler, JupyterHandler):
 
     async def _heartbeat_lock(self) -> None:
         # heartbeat every ttl/3 seconds (tunable)
-        ttl = float(self.settings.get("collaborative_lock_ttl_seconds", 120.0))
-        interval = min(30.0, ttl / 3.0)
+        ttl = float(self.settings.get("lock_ttl_seconds", 120.0))
+        interval = min(5.0, ttl / 3.0)
 
         while True:
             try:
