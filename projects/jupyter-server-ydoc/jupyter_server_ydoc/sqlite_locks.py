@@ -65,9 +65,6 @@ class SQLiteDocumentLockManager:
     async def heartbeat(self, lock_key: str, owner: str) -> bool:
         return await asyncio.to_thread(self._heartbeat_sync, lock_key, owner)
 
-    async def get(self, lock_key: str) -> Optional[LockInfo]:
-        return await asyncio.to_thread(self._get_sync, lock_key)
-
     # ---------- internal sync implementation ----------
 
     def _connect(self) -> sqlite3.Connection:
@@ -270,24 +267,5 @@ class SQLiteDocumentLockManager:
             )
             con.commit()
             return res.rowcount == 1
-        finally:
-            con.close()
-
-    def _get_sync(self, lock_key: str) -> Optional[LockInfo]:
-        con = self._connect()
-        try:
-            row = con.execute(
-                "SELECT lock_key, owner, acquired_at, heartbeat_at, connections FROM doc_locks WHERE lock_key=?",
-                (lock_key,),
-            ).fetchone()
-            if row is None:
-                return None
-            return LockInfo(
-                lock_key=row["lock_key"],
-                owner=row["owner"],
-                acquired_at=row["acquired_at"],
-                heartbeat_at=row["heartbeat_at"],
-                connections=row["connections"],
-            )
         finally:
             con.close()

@@ -365,7 +365,7 @@ class YDocWebSocketHandler(WebSocketHandler, JupyterHandler):
     async def _heartbeat_lock(self) -> None:
         # heartbeat every ttl/3 seconds (tunable)
         ttl = float(self.settings.get("collaborative_lock_ttl_seconds", 120.0))
-        interval = max(5.0, ttl / 3.0)
+        interval = min(30.0, ttl / 3.0)
 
         while True:
             try:
@@ -374,7 +374,7 @@ class YDocWebSocketHandler(WebSocketHandler, JupyterHandler):
                 return
 
             try:
-                ok = await self._lock_mgr.heartbeat(self._locked_key, self._lock_owner)
+                ok = await self._lock_mgr.heartbeat(self._lock_key, self._lock_owner)
                 if not ok:
                     # If heartbeat fails, lock is gone or stolen — best effort:
                     return
