@@ -550,12 +550,6 @@ class DocSessionHandler(APIHandler):
                     {
                         "code": 423,
                         "message": msg,
-                        "error": msg,
-                        "reason": "locked",
-                        "format": format,
-                        "type": content_type,
-                        "fileId": idx,
-                        "sessionId": SERVER_SESSION,
                     }
                 )
                 self.set_status(423)
