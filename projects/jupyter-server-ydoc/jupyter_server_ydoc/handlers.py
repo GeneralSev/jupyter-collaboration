@@ -545,11 +545,21 @@ class DocSessionHandler(APIHandler):
 
             acquired, info = await lock_mgr.try_acquire(lock_key, owner)
             if not acquired:
+                msg = f"File is currently in use by another user: {info.owner.upper()}."
+                data = json.dumps(
+                    {
+                        "code": 423,
+                        "message": msg,
+                        "error": msg,
+                        "reason": "locked",
+                        "format": format,
+                        "type": content_type,
+                        "fileId": idx,
+                        "sessionId": SERVER_SESSION,
+                    }
+                )
                 self.set_status(423)
-                return self.finish(json.dumps({
-                    "code": 423,
-                    "error": f"File is currently in use by another user: {info.owner.upper()}."
-                }))
+                return self.finish(data)
             else:
                 # don't hold lock here — session endpoint should be non-locking
                 await lock_mgr.release(lock_key, owner)
