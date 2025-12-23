@@ -11,7 +11,8 @@ import {
   requestDocumentTimeline
 } from './requests';
 import { historyIcon } from '@jupyterlab/ui-components';
-import { Notification } from '@jupyterlab/apputils';
+import { Notification, Dialog, showErrorMessage } from '@jupyterlab/apputils';
+import { ServerConnection } from '@jupyterlab/services';
 import { IForkProvider } from './ydrive';
 
 type Props = {
@@ -76,15 +77,33 @@ export const TimelineSliderComponent: React.FC<Props> = ({
           setData(data);
           setCurrentTimestampIndex(data.timestamps.length - 1);
           provider.connectToForkDoc(data.forkRoom, data.sessionId);
-          sessionRef.current = await requestDocSession(
-            format,
-            contentType,
-            extractFilenameFromURL(apiURL)
-          );
+          try {
+            sessionRef.current = await requestDocSession(
+              format,
+              contentType,
+              extractFilenameFromURL(apiURL)
+            );
+          } catch (err) {
+            const locked =
+              err instanceof ServerConnection.ResponseError &&
+              err.response?.status === 423;
+
+            if (locked) {
+              void showErrorMessage(
+                'File in use by another user',
+                err.message,
+                [Dialog.okButton()]
+              );
+              isFirstChange.current = false;
+              setToggle(false);
+              return;
+            }
+            throw err;
+          }
         }
+
         setToggle(true);
         isFirstChange.current = false;
-
         return data;
       }
     } catch (error) {
