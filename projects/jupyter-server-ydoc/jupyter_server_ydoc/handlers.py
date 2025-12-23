@@ -107,7 +107,7 @@ class YDocWebSocketHandler(WebSocketHandler, JupyterHandler):
                 acquired, info = await lock_mgr.try_acquire(self._lock_key, self._lock_owner)
                 if not acquired:
                     self._lock_denied = True
-                    self._lock_denied_reason = f"File is currently in use by another user: {info.owner.upper()}."
+                    self._lock_denied_reason = f"File is currently in use by another user: {info.owner.upper()}"
                     self.log.warning(
                         "LOCK DENIED (will close WS): user=%s key=%s locked_by=%s",
                         self._lock_owner, self._lock_key, getattr(info, "owner", None)
@@ -260,7 +260,7 @@ class YDocWebSocketHandler(WebSocketHandler, JupyterHandler):
         On connection open.
         """
         if getattr(self, "_lock_denied", False):
-            self.close(1003, getattr(self, "_lock_denied_reason", "File locked"))
+            self.close(423, getattr(self, "_lock_denied_reason", "File is currently in use by another user:"))
             return
 
         self.create_task(self._websocket_server.serve(self))
@@ -545,7 +545,7 @@ class DocSessionHandler(APIHandler):
 
             acquired, info = await lock_mgr.try_acquire(lock_key, owner)
             if not acquired:
-                msg = f"File is currently in use by another user: {info.owner.upper()}."
+                msg = f"File is currently in use by another user: {info.owner.upper()}"
                 data = json.dumps(
                     {
                         "code": 423,

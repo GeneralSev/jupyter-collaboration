@@ -14,6 +14,7 @@ import { historyIcon } from '@jupyterlab/ui-components';
 import { Notification, Dialog, showErrorMessage } from '@jupyterlab/apputils';
 import { ServerConnection } from '@jupyterlab/services';
 import { IForkProvider } from './ydrive';
+import { showFileLockError } from './file_lock';
 
 type Props = {
   apiURL: string;
@@ -89,11 +90,7 @@ export const TimelineSliderComponent: React.FC<Props> = ({
               err.response?.status === 423;
 
             if (locked) {
-              void showErrorMessage(
-                'File in use by another user',
-                err.message,
-                [Dialog.okButton()]
-              );
+              void showFileLockError(err.message);
               isFirstChange.current = false;
               setToggle(false);
               return;

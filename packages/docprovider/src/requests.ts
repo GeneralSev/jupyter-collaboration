@@ -89,7 +89,7 @@ export async function requestAPI<T = any>(
     const message = getErrorMessage(data, response);
 
     if (response.status === 423) {
-      void showErrorMessage('File in use by another user', message, [
+      void showErrorMessage('File lock error', message, [
         Dialog.okButton()
       ]);
     }
@@ -137,11 +137,7 @@ export async function requestDocSession(
     const message = getErrorMessage(data, response);
 
     if (response.status === 423) {
-      void showErrorMessage('File in use by another user', message, [
-        Dialog.okButton()
-      ]);
-    } else {
-      void showErrorMessage('Unable to open document', message, [
+      void showErrorMessage('File lock error', message, [
         Dialog.okButton()
       ]);
     }

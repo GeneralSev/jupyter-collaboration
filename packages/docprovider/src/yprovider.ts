@@ -18,6 +18,7 @@ import { WebsocketProvider as YWebsocketProvider } from 'y-websocket';
 
 import { requestDocSession } from './requests';
 import { IForkProvider } from './ydrive';
+import { messageFromResponseError, showFileLockError } from './file_lock';
 
 /**
  * A class to provide Yjs synchronization over WebSocket.
@@ -25,17 +26,6 @@ import { IForkProvider } from './ydrive';
  * We specify custom messages that the server can interpret. For reference please look in yjs_ws_server.
  *
  */
-
-function messageFromResponseError(err: unknown): string {
-  if (err instanceof ServerConnection.ResponseError) {
-    // err.message is often already the parsed server message
-    return err.message || err.response.statusText || 'Unknown error';
-  }
-  if (err instanceof Error) {
-    return err.message;
-  }
-  return String(err);
-}
 
 export class WebSocketProvider implements IDocumentProvider, IForkProvider {
   /**
@@ -122,9 +112,7 @@ export class WebSocketProvider implements IDocumentProvider, IForkProvider {
         err.response?.status === 423;
 
       if (isLocked) {
-        void showErrorMessage('File in use by another user', msg, [
-          Dialog.okButton()
-        ]);
+        void showFileLockError(msg);
       }
 
       try {
@@ -193,6 +181,9 @@ export class WebSocketProvider implements IDocumentProvider, IForkProvider {
 
       // Dispose shared model immediately. Better break the document model,
       // than overriding data on disk.
+      this._sharedModel.dispose();
+    } else if (event.code === 423) {
+      void showFileLockError(event.reason);
       this._sharedModel.dispose();
     }
   };
