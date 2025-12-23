@@ -11,7 +11,7 @@ import {
   requestDocumentTimeline
 } from './requests';
 import { historyIcon } from '@jupyterlab/ui-components';
-import { Notification, Dialog, showErrorMessage } from '@jupyterlab/apputils';
+import { Notification } from '@jupyterlab/apputils';
 import { ServerConnection } from '@jupyterlab/services';
 import { IForkProvider } from './ydrive';
 import { showFileLockError } from './file_lock';
