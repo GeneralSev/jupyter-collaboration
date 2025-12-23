@@ -47,10 +47,8 @@ FORK_ROOMS: dict[str, dict[str, str]] = {}
 
 def get_file_lock_error_message(username: str = '') -> str:
     return (
-        f"File is currently in use by another user: {username.upper()}<br>"
-        f"<br>"
-        f"Please close the file, ensure the other user has also closed it, then retry."
-    )
+        f"File currently in use by another user: {username.upper()}"
+    )  # error cannot be longer than 125 chars for self.close methods below
 
 
 class YDocWebSocketHandler(WebSocketHandler, JupyterHandler):
