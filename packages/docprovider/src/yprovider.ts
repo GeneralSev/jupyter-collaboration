@@ -114,18 +114,18 @@ export class WebSocketProvider implements IDocumentProvider, IForkProvider {
       if (isLocked) {
         void showFileLockError(msg);
       }
-
-      try {
-        this._onConnectionClosed?.({
-          code: 423,
-          reason: msg
-        } as any);
-      } catch {
-        // best effort
-      }
+      //
+      // try {
+      //   this._onConnectionClosed?.({
+      //     code: 423,
+      //     reason: msg
+      //   } as any);
+      // } catch {
+      //   // best effort
+      // }
 
       // Re-throw so document open flow stops spinning
-      throw err;
+      // throw err;
     }
 
     this._yWebsocketProvider = new YWebsocketProvider(

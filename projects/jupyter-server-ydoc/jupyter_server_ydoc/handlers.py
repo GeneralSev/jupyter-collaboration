@@ -45,6 +45,14 @@ FORK_DOCUMENTS = {}
 FORK_ROOMS: dict[str, dict[str, str]] = {}
 
 
+def get_file_lock_error_message(username: str = '') -> str:
+    return (
+        f"File is currently in use by another user: {username.upper()}\n"
+        f"\n"
+        f"Please close the file, ensure the other user has also closed it, then retry."
+    )
+
+
 class YDocWebSocketHandler(WebSocketHandler, JupyterHandler):
     """`YDocWebSocketHandler` uses the singleton pattern for ``WebsocketServer``,
     which is a subclass of ypy-websocket's ``WebsocketServer``.
@@ -107,7 +115,7 @@ class YDocWebSocketHandler(WebSocketHandler, JupyterHandler):
                 acquired, info = await lock_mgr.try_acquire(self._lock_key, self._lock_owner)
                 if not acquired:
                     self._lock_denied = True
-                    self._lock_denied_reason = f"File is currently in use by another user: {info.owner.upper()}"
+                    self._lock_denied_reason = get_file_lock_error_message(username=info.owner)
                     self.log.warning(
                         "LOCK DENIED (will close WS): user=%s key=%s locked_by=%s",
                         self._lock_owner, self._lock_key, getattr(info, "owner", None)
@@ -260,7 +268,7 @@ class YDocWebSocketHandler(WebSocketHandler, JupyterHandler):
         On connection open.
         """
         if getattr(self, "_lock_denied", False):
-            self.close(423, getattr(self, "_lock_denied_reason", "File is currently in use by another user:"))
+            self.close(423, getattr(self, "_lock_denied_reason", get_file_lock_error_message()))
             return
 
         self.create_task(self._websocket_server.serve(self))
@@ -545,11 +553,10 @@ class DocSessionHandler(APIHandler):
 
             acquired, info = await lock_mgr.try_acquire(lock_key, owner)
             if not acquired:
-                msg = f"File is currently in use by another user: {info.owner.upper()}"
                 data = json.dumps(
                     {
                         "code": 423,
-                        "message": msg,
+                        "message": get_file_lock_error_message(username=info.owner),
                     }
                 )
                 self.set_status(423)

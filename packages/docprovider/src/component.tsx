@@ -14,7 +14,6 @@ import { historyIcon } from '@jupyterlab/ui-components';
 import { Notification } from '@jupyterlab/apputils';
 import { ServerConnection } from '@jupyterlab/services';
 import { IForkProvider } from './ydrive';
-import { showFileLockError } from './file_lock';
 
 type Props = {
   apiURL: string;
@@ -78,29 +77,15 @@ export const TimelineSliderComponent: React.FC<Props> = ({
           setData(data);
           setCurrentTimestampIndex(data.timestamps.length - 1);
           provider.connectToForkDoc(data.forkRoom, data.sessionId);
-          try {
-            sessionRef.current = await requestDocSession(
-              format,
-              contentType,
-              extractFilenameFromURL(apiURL)
-            );
-          } catch (err) {
-            const locked =
-              err instanceof ServerConnection.ResponseError &&
-              err.response?.status === 423;
-
-            if (locked) {
-              void showFileLockError(err.message);
-              isFirstChange.current = false;
-              setToggle(false);
-              return;
-            }
-            throw err;
-          }
+          sessionRef.current = await requestDocSession(
+            format,
+            contentType,
+            extractFilenameFromURL(apiURL)
+          );
         }
-
         setToggle(true);
         isFirstChange.current = false;
+
         return data;
       }
     } catch (error) {
