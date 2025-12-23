@@ -5,6 +5,7 @@
 
 import { URLExt } from '@jupyterlab/coreutils';
 import { ServerConnection, Contents } from '@jupyterlab/services';
+import { showErrorMessage } from '@jupyterlab/apputils';
 
 /**
  * Document session endpoint provided by `jupyter_collaboration`
@@ -36,6 +37,20 @@ export interface ISessionModel {
    * Server session identifier
    */
   sessionId: string;
+}
+
+/**
+ * Best-effort extraction of a human-readable message from server error payloads.
+ */
+function getErrorMessage(data: any, response?: Response): string {
+  if (data !== null) {
+    if (typeof data === 'string') {
+      return data;
+    }
+    return data.message || response?.statusText || 'Unknown error';
+  } else {
+    return response?.statusText || 'Unknown error';
+  }
 }
 
 /**
@@ -71,10 +86,16 @@ export async function requestAPI<T = any>(
   }
 
   if (!response.ok) {
-    throw new ServerConnection.ResponseError(response, data.message || data);
+    const message = getErrorMessage(data, response);
+
+    if (response.status === 423) {
+      void showErrorMessage('File is locked', message);
+    }
+
+    throw new ServerConnection.ResponseError(response, message);
   }
 
-  return data;
+  return data as T;
 }
 
 export async function requestDocSession(
@@ -111,10 +132,17 @@ export async function requestDocSession(
   }
 
   if (!response.ok) {
+    const message = getErrorMessage(data, response);
+
+    if (response.status === 423) {
+      void showErrorMessage('File is currently in use', message);
+    } else {
+      void showErrorMessage('Unable to open document', message);
+    }
+
     throw new ServerConnection.ResponseError(response, data.message || data);
   }
-
-  return data;
+  return data as ISessionModel;
 }
 
 export async function requestDocumentTimeline(
