@@ -12,7 +12,6 @@ import {
 } from './requests';
 import { historyIcon } from '@jupyterlab/ui-components';
 import { Notification } from '@jupyterlab/apputils';
-import { ServerConnection } from '@jupyterlab/services';
 import { IForkProvider } from './ydrive';
 
 type Props = {
