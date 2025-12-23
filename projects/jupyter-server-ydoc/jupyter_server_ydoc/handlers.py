@@ -109,13 +109,10 @@ class YDocWebSocketHandler(WebSocketHandler, JupyterHandler):
                     self._lock_denied = True
                     self._lock_denied_reason = f"File is currently in use by another user: {info.owner.upper()}."
                     self.log.warning(
-                        "Lock denied for %s (room=%s). Requested by=%s, locked by=%s",
-                        self._lock_key, self._room_id, self._lock_owner, info.owner
+                        "LOCK DENIED (will close WS): user=%s key=%s locked_by=%s",
+                        self._lock_owner, self._lock_key, getattr(info, "owner", None)
                     )
-                    raise web.HTTPError(
-                        423,
-                        reason=f"File is currently in use by another user: {info.owner.upper()}."
-                    )
+                    return
 
                 # start heartbeat for this connection
                 self._lock_mgr = lock_mgr
@@ -263,10 +260,8 @@ class YDocWebSocketHandler(WebSocketHandler, JupyterHandler):
         On connection open.
         """
         if getattr(self, "_lock_denied", False):
-            self.close(
-                1003,
-                getattr(self, "_lock_denied_reason", "File is currently in use by another user.")
-            )
+            self.close(1003, getattr(self, "_lock_denied_reason", "File locked"))
+            return
 
         self.create_task(self._websocket_server.serve(self))
 
@@ -547,6 +542,8 @@ class DocSessionHandler(APIHandler):
             lock_mgr: SQLiteDocumentLockManager = self.settings["collaborative_lock_manager"]
             owner = self.current_user.username
             lock_key = f"{content_type}:{file_rel_path}"
+
+            print(f"\n\n\n\nlock_key in put(): {lock_key}\n\n\n\n")
 
             acquired, info = await lock_mgr.try_acquire(lock_key, owner)
             if not acquired:
