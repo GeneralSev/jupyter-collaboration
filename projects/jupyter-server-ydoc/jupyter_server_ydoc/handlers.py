@@ -543,8 +543,6 @@ class DocSessionHandler(APIHandler):
             owner = self.current_user.username
             lock_key = f"{content_type}:{file_rel_path}"
 
-            print(f"\n\n\n\nlock_key in put(): {lock_key}\n\n\n\n")
-
             acquired, info = await lock_mgr.try_acquire(lock_key, owner)
             if not acquired:
                 self.set_status(423)
