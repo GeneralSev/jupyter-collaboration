@@ -25,9 +25,9 @@ export function getErrorMessage(data: any, response?: Response): string {
   }
 }
 
-export async function showFileLockError(message: string) {
+export async function showFileLockWarning(message: string) {
   return showErrorMessage(
-    'File lock error',
+    'File lock warning',
     message,
     [Dialog.okButton()]
   );

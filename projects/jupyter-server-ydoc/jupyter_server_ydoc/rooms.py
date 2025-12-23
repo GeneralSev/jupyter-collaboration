@@ -24,16 +24,17 @@ class DocumentRoom(YRoom):
     _background_tasks: set[asyncio.Task]
 
     def __init__(
-        self,
-        room_id: str,
-        file_format: str,
-        file_type: str,
-        file: FileLoader,
-        logger: EventLogger,
-        ystore: BaseYStore | None,
-        log: Logger | None,
-        save_delay: float | None = None,
-        exception_handler: Callable[[Exception, Logger], bool] | None = None,
+            self,
+            room_id: str,
+            file_format: str,
+            file_type: str,
+            file: FileLoader,
+            logger: EventLogger,
+            ystore: BaseYStore | None,
+            log: Logger | None,
+            save_delay: float | None = None,
+            exception_handler: Callable[[Exception, Logger], bool] | None = None,
+            read_only: bool = False,
     ):
         super().__init__(ready=False, ystore=ystore, exception_handler=exception_handler, log=log)
 
@@ -46,6 +47,7 @@ class DocumentRoom(YRoom):
 
         self._logger = logger
         self._save_delay = save_delay
+        self._read_only = read_only
 
         self._update_lock = asyncio.Lock()
         self._cleaner: asyncio.Task | None = None
@@ -55,7 +57,19 @@ class DocumentRoom(YRoom):
 
         # Listen for document changes
         self._document.observe(self._on_document_change)
-        self._file.observe(self.room_id, self._on_outofband_change, self._on_filepath_change)
+
+        # Only observe file changes if NOT in read-only mode
+        if not self._read_only:
+            self._file.observe(self.room_id, self._on_outofband_change, self._on_filepath_change)
+        else:
+            # In read-only mode, only observe filepath changes (no content sync)
+            self._file.observe(self.room_id, None, self._on_filepath_change)
+            self.log.info("Room %s initialized in READ-ONLY mode", self._room_id)
+
+    @property
+    def read_only(self) -> bool:
+        """Whether this room is in read-only mode."""
+        return self._read_only
 
     @property
     def file_format(self) -> str:
@@ -210,7 +224,16 @@ class DocumentRoom(YRoom):
     async def _on_outofband_change(self) -> None:
         """
         Called when the file got out-of-band changes.
+
+        In read-only mode, this should never be called as we don't observe content changes.
         """
+        if self._read_only:
+            self.log.warning(
+                "Out-of-band change detected in read-only room %s (overwrite skipped)",
+                self._room_id
+            )
+            return
+
         self.log.info("Out-of-band changes. Overwriting the content in room %s", self._room_id)
         self._emit(LogLevel.INFO, "overwrite", "Out-of-band changes. Overwriting the room.")
 
@@ -240,6 +263,8 @@ class DocumentRoom(YRoom):
                 target (str): The name of the changed attribute.
                 event (Any): Changes.
 
+        In read-only mode, we skip saving entirely.
+
         ### Note:
             We auto save the content of the document every time there is a
             change in it. Since we could receive a high amount of changes
@@ -247,6 +272,10 @@ class DocumentRoom(YRoom):
             document. This tasks are debounced (60 seconds by default) so we
             need to cancel previous tasks before creating a new one.
         """
+        if self._read_only:
+            self.log.debug("Document change in read-only room %s - skipping save", self._room_id)
+            return
+
         # Collect autosave values from all clients
         autosave_states = [
             state.get("autosave", True)
@@ -273,9 +302,15 @@ class DocumentRoom(YRoom):
     def _save_to_disc(self):
         """
         Called when manual save is triggered. Helpful when autosave is turned off.
+
+        In read-only mode, return None to indicate save is not possible.
         """
+        if self._read_only:
+            self.log.warning("Manual save attempted in read-only room %s - ignoring", self._room_id)
+            return None
+
         if self._update_lock.locked():
-            return
+            return None
 
         self._saving_document = asyncio.create_task(
             self._maybe_save_document(self._saving_document)
@@ -290,7 +325,13 @@ class DocumentRoom(YRoom):
             There is a save delay to debounce the save since we could receive a high
             amount of changes in a short period of time. This way we can cancel the
             previous save.
+
+        In read-only mode, this should never be called, but we add a safety check.
         """
+        if self._read_only:
+            self.log.warning("Save attempted in read-only room %s - aborting", self._room_id)
+            return
+
         if self._save_delay is None:
             return
         if saving_document is not None and not saving_document.done():

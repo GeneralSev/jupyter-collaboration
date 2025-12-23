@@ -7,18 +7,19 @@ import { IDocumentProvider } from '@jupyter/collaborative-drive';
 import { showErrorMessage, Dialog } from '@jupyterlab/apputils';
 import { User } from '@jupyterlab/services';
 import { TranslationBundle } from '@jupyterlab/translation';
-import { ServerConnection } from '@jupyterlab/services';
 import { PromiseDelegate } from '@lumino/coreutils';
 import { Signal } from '@lumino/signaling';
 
 import { DocumentChange, YDocument } from '@jupyter/ydoc';
+
+import * as decoding from 'lib0/decoding';
 
 import { Awareness } from 'y-protocols/awareness';
 import { WebsocketProvider as YWebsocketProvider } from 'y-websocket';
 
 import { requestDocSession } from './requests';
 import { IForkProvider } from './ydrive';
-import { messageFromResponseError, showFileLockError } from './file_lock';
+import { showFileLockWarning } from './file_lock';
 
 /**
  * A class to provide Yjs synchronization over WebSocket.
@@ -96,51 +97,113 @@ export class WebSocketProvider implements IDocumentProvider, IForkProvider {
     this._connect();
   }
 
-  private async _connect(): Promise<void> {
-    let session;
-    try {
-      session = await requestDocSession(
-        this._format,
-        this._contentType,
-        this._path
-      );
-    } catch (err) {
-      const msg = messageFromResponseError(err);
-
-      const isLocked =
-        err instanceof ServerConnection.ResponseError &&
-        err.response?.status === 423;
-
-      if (isLocked) {
-        void showFileLockError(msg);
-      }
-
-      try {
-        this._onConnectionClosed?.({
-          code: 423,
-          reason: msg
-        } as any);
-      } catch {
-        // best effort
-      }
-
-      // Re-throw so document open flow stops spinning
-      throw err;
+  private _installRawMessageHandler(): void {
+    const ws = (this._yWebsocketProvider as any)?.ws as WebSocket | undefined;
+    if (!ws) {
+      return;
     }
 
-    this._yWebsocketProvider = new YWebsocketProvider(
-      this._serverUrl,
-      `${session.format}:${session.type}:${session.fileId}`,
-      this._sharedModel.ydoc,
-      {
-        disableBc: true,
-        params: { sessionId: session.sessionId },
-        awareness: this._awareness
+    ws.addEventListener('message', (evt: MessageEvent) => {
+      try {
+        const data = evt.data;
+
+        // y-websocket uses ArrayBuffer for binary messages
+        const buf =
+          data instanceof ArrayBuffer
+            ? new Uint8Array(data)
+            : data instanceof Blob
+              ? undefined
+              : data instanceof Uint8Array
+                ? data
+                : undefined;
+
+        if (!buf) {
+          return;
+        }
+
+        const decoder = decoding.createDecoder(buf);
+        const msgType = decoding.readVarUint(decoder);
+
+        const RAW = 2;  // match backend MessageType.RAW
+
+        if (msgType !== RAW) {
+          return;
+        }
+
+        const jsonStr = decoding.readVarString(decoder);
+        const payload = JSON.parse(jsonStr);
+
+        if (payload?.type === 'warning' && payload?.readOnly) {
+          this._readOnly = true;
+          this.readOnlyChanged.emit({ readOnly: true, lockedBy: this._lockedBy });
+
+          const state = this._sharedModel.ydoc.getMap('state');
+          state.set('readOnly', true);
+
+          void showFileLockWarning(payload.message);
+        }
+      } catch {
+        // ignore parsing errors; do not disrupt Yjs protocol processing
       }
+    });
+  }
+
+
+  private _readOnly = false;
+  private _lockedBy: string | null = null;
+
+  readonly readOnlyChanged = new Signal<this, { readOnly: boolean; lockedBy: string | null }>(this);
+
+  get isReadOnly(): boolean {
+    return this._readOnly;
+  }
+
+  get lockedBy(): string | null {
+    return this._lockedBy;
+  }
+
+  private async _connect(): Promise<void> {
+    const session = await requestDocSession(
+      this._format,
+      this._contentType,
+      this._path
     );
+
+    this._readOnly = Boolean((session as any).readOnly);
+    this._lockedBy = (session as any).lockedBy ?? null;
+
+    if (this._readOnly) {
+      // Notify rest of the app
+      this.readOnlyChanged.emit({ readOnly: true, lockedBy: this._lockedBy });
+
+      // Persist into the shared "state" map so others (and extensions) can read it.
+      const state = this._sharedModel.ydoc.getMap('state');
+      state.set('readOnly', true);
+      state.set('lockedBy', this._lockedBy);
+
+      // Show a warning UX (NOT fatal).
+      void showFileLockWarning(
+        this._lockedBy
+          ? `File is locked by ${this._lockedBy.toUpperCase()}. Opened in read-only mode.`
+          : `File is locked. Opened in read-only mode.`
+      );
+
+      this._yWebsocketProvider = new YWebsocketProvider(
+        this._serverUrl,
+        `${session.format}:${session.type}:${session.fileId}`,
+        this._sharedModel.ydoc,
+        {
+          disableBc: true,
+          params: { sessionId: session.sessionId },
+          awareness: this._awareness
+        }
+      );
+    }
 
     this._yWebsocketProvider.on('sync', this._onSync);
     this._yWebsocketProvider.on('connection-close', this._onConnectionClosed);
+
+    this._installRawMessageHandler();
   }
 
   async connectToForkDoc(forkRoomId: string, sessionId: string): Promise<void> {
@@ -183,8 +246,10 @@ export class WebSocketProvider implements IDocumentProvider, IForkProvider {
       // than overriding data on disk.
       this._sharedModel.dispose();
     } else if (event.code === 423) {
-      void showFileLockError(event.reason);
-      this._sharedModel.dispose();
+      this._readOnly = true;
+      this.readOnlyChanged.emit({ readOnly: true, lockedBy: this._lockedBy });
+      void showFileLockWarning(event.reason);
+      return;
     }
   };
 

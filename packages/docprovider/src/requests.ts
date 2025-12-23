@@ -5,7 +5,7 @@
 
 import { URLExt } from '@jupyterlab/coreutils';
 import { ServerConnection, Contents } from '@jupyterlab/services';
-import { getErrorMessage, showFileLockError } from './file_lock';
+import { getErrorMessage, showFileLockWarning } from './file_lock';
 
 /**
  * Document session endpoint provided by `jupyter_collaboration`
@@ -37,6 +37,18 @@ export interface ISessionModel {
    * Server session identifier
    */
   sessionId: string;
+
+  /**
+   * True when the document is opened while another user holds the lock.
+   * In that case, the frontend must enforce read-only behavior.
+   */
+  readOnly?: boolean;
+
+  /**
+   * Username of lock owner (if readOnly is true), otherwise null/undefined.
+   */
+  lockedBy?: string | null;
+
 }
 
 
@@ -76,7 +88,7 @@ export async function requestAPI<T = any>(
     const message = getErrorMessage(data, response);
 
     if (response.status === 423) {
-      void showFileLockError(message);
+      void showFileLockWarning(message);
     }
 
     throw new ServerConnection.ResponseError(response, message);
@@ -120,13 +132,12 @@ export async function requestDocSession(
 
   if (!response.ok) {
     const message = getErrorMessage(data, response);
-
-    if (response.status === 423) {
-      void showFileLockError(message);
-    }
-
-    throw new ServerConnection.ResponseError(response, data.message || data);
+    throw new ServerConnection.ResponseError(response, data.message || message || data);
   }
+
+  (data as ISessionModel).readOnly = Boolean((data as ISessionModel).readOnly);
+  (data as ISessionModel).lockedBy = (data as ISessionModel).lockedBy ?? null;
+
   return data as ISessionModel;
 }
 
