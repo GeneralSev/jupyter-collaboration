@@ -7,7 +7,7 @@ import { IDocumentProvider } from '@jupyter/collaborative-drive';
 import { showErrorMessage, Dialog } from '@jupyterlab/apputils';
 import { User } from '@jupyterlab/services';
 import { TranslationBundle } from '@jupyterlab/translation';
-
+import { ServerConnection } from '@jupyterlab/services';
 import { PromiseDelegate } from '@lumino/coreutils';
 import { Signal } from '@lumino/signaling';
 
@@ -25,6 +25,17 @@ import { IForkProvider } from './ydrive';
  * We specify custom messages that the server can interpret. For reference please look in yjs_ws_server.
  *
  */
+
+function messageFromResponseError(err: unknown): string {
+  if (err instanceof ServerConnection.ResponseError) {
+    // err.message is often already the parsed server message
+    return err.message || err.response.statusText || 'Unknown error';
+  }
+  if (err instanceof Error) {
+    return err.message;
+  }
+  return String(err);
+}
 
 export class WebSocketProvider implements IDocumentProvider, IForkProvider {
   /**
@@ -96,11 +107,38 @@ export class WebSocketProvider implements IDocumentProvider, IForkProvider {
   }
 
   private async _connect(): Promise<void> {
-    const session = await requestDocSession(
-      this._format,
-      this._contentType,
-      this._path
-    );
+    let session;
+    try {
+      session = await requestDocSession(
+        this._format,
+        this._contentType,
+        this._path
+      );
+    } catch (err) {
+      const msg = messageFromResponseError(err);
+
+      const isLocked =
+        err instanceof ServerConnection.ResponseError &&
+        err.response?.status === 423;
+
+      if (isLocked) {
+        void showErrorMessage('File in use by another user', msg, [
+          Dialog.okButton()
+        ]);
+      }
+
+      try {
+        this._onConnectionClosed?.({
+          code: 423,
+          reason: msg
+        } as any);
+      } catch {
+        // best effort
+      }
+
+      // Re-throw so document open flow stops spinning
+      throw err;
+    }
 
     this._yWebsocketProvider = new YWebsocketProvider(
       this._serverUrl,

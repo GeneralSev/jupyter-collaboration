@@ -5,7 +5,7 @@
 
 import { URLExt } from '@jupyterlab/coreutils';
 import { ServerConnection, Contents } from '@jupyterlab/services';
-import { showErrorMessage } from '@jupyterlab/apputils';
+import { showErrorMessage, Dialog } from '@jupyterlab/apputils';
 
 /**
  * Document session endpoint provided by `jupyter_collaboration`
@@ -89,7 +89,9 @@ export async function requestAPI<T = any>(
     const message = getErrorMessage(data, response);
 
     if (response.status === 423) {
-      void showErrorMessage('File is locked', message);
+      void showErrorMessage('File in use by another user', message, [
+        Dialog.okButton()
+      ]);
     }
 
     throw new ServerConnection.ResponseError(response, message);
@@ -135,9 +137,13 @@ export async function requestDocSession(
     const message = getErrorMessage(data, response);
 
     if (response.status === 423) {
-      void showErrorMessage('File is currently in use', message);
+      void showErrorMessage('File in use by another user', message, [
+        Dialog.okButton()
+      ]);
     } else {
-      void showErrorMessage('Unable to open document', message);
+      void showErrorMessage('Unable to open document', message, [
+        Dialog.okButton()
+      ]);
     }
 
     throw new ServerConnection.ResponseError(response, data.message || data);
