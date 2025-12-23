@@ -5,7 +5,7 @@
 
 import { URLExt } from '@jupyterlab/coreutils';
 import { ServerConnection, Contents } from '@jupyterlab/services';
-import { showErrorMessage, Dialog } from '@jupyterlab/apputils';
+import { getErrorMessage, showFileLockError } from './file_lock';
 
 /**
  * Document session endpoint provided by `jupyter_collaboration`
@@ -39,19 +39,6 @@ export interface ISessionModel {
   sessionId: string;
 }
 
-/**
- * Best-effort extraction of a human-readable message from server error payloads.
- */
-function getErrorMessage(data: any, response?: Response): string {
-  if (data !== null) {
-    if (typeof data === 'string') {
-      return data;
-    }
-    return data.message || response?.statusText || 'Unknown error';
-  } else {
-    return response?.statusText || 'Unknown error';
-  }
-}
 
 /**
  * Call the API extension
@@ -89,9 +76,7 @@ export async function requestAPI<T = any>(
     const message = getErrorMessage(data, response);
 
     if (response.status === 423) {
-      void showErrorMessage('File lock error', message, [
-        Dialog.okButton()
-      ]);
+      void showFileLockError(message);
     }
 
     throw new ServerConnection.ResponseError(response, message);
@@ -137,9 +122,7 @@ export async function requestDocSession(
     const message = getErrorMessage(data, response);
 
     if (response.status === 423) {
-      void showErrorMessage('File lock error', message, [
-        Dialog.okButton()
-      ]);
+      void showFileLockError(message);
     }
 
     throw new ServerConnection.ResponseError(response, data.message || data);

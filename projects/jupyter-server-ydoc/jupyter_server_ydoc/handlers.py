@@ -47,8 +47,8 @@ FORK_ROOMS: dict[str, dict[str, str]] = {}
 
 def get_file_lock_error_message(username: str = '') -> str:
     return (
-        f"File is currently in use by another user: {username.upper()}\n"
-        f"\n"
+        f"File is currently in use by another user: {username.upper()}<br>"
+        f"<br>"
         f"Please close the file, ensure the other user has also closed it, then retry."
     )
 
@@ -545,25 +545,26 @@ class DocSessionHandler(APIHandler):
         #
         # START: Early fail if file is locked, don't keep trying to open it (spinning wheel on frontend)
         file_rel_path = file_id_manager.get_path(idx)
-        file_rel_path_first_part = Path(file_rel_path).parts[0]
-        if file_rel_path_first_part in FOLDERS_FOR_FILE_LOCKING:
-            lock_mgr: SQLiteDocumentLockManager = self.settings["collaborative_lock_manager"]
-            owner = self.current_user.username
-            lock_key = f"{content_type}:{file_rel_path}"
+        if file_rel_path is not None:  # file_rel_path can be None if it does not exist yet (e.g. when creating a new one)
+            file_rel_path_first_part = Path(file_rel_path).parts[0]
+            if file_rel_path_first_part in FOLDERS_FOR_FILE_LOCKING:
+                lock_mgr: SQLiteDocumentLockManager = self.settings["collaborative_lock_manager"]
+                owner = self.current_user.username
+                lock_key = f"{content_type}:{file_rel_path}"
 
-            acquired, info = await lock_mgr.try_acquire(lock_key, owner)
-            if not acquired:
-                data = json.dumps(
-                    {
-                        "code": 423,
-                        "message": get_file_lock_error_message(username=info.owner),
-                    }
-                )
-                self.set_status(423)
-                return self.finish(data)
-            else:
-                # don't hold lock here — session endpoint should be non-locking
-                await lock_mgr.release(lock_key, owner)
+                acquired, info = await lock_mgr.try_acquire(lock_key, owner)
+                if not acquired:
+                    data = json.dumps(
+                        {
+                            "code": 423,
+                            "message": get_file_lock_error_message(username=info.owner),
+                        }
+                    )
+                    self.set_status(423)
+                    return self.finish(data)
+                else:
+                    # don't hold lock here — session endpoint should be non-locking
+                    await lock_mgr.release(lock_key, owner)
         # END: Early fail
         #
 
