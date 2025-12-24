@@ -41,7 +41,6 @@
     "watch": "tsc -b --watch"
   },
   "dependencies": {
-    "lib0": "^0.2",
     "@jupyter/collaborative-drive": "^4.2.0",
     "@jupyter/ydoc": "^2.1.3 || ^3.0.0",
     "@jupyterlab/apputils": "^4.5.0",

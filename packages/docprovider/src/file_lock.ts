@@ -1,34 +1,50 @@
-import { Dialog, showErrorMessage } from '@jupyterlab/apputils';
-import { ServerConnection } from '@jupyterlab/services';
+import { showDialog, Dialog } from '@jupyterlab/apputils';
 
-export function messageFromResponseError(err: unknown): string {
-  if (err instanceof ServerConnection.ResponseError) {
-    return err.message;
+/**
+ * Extract error message from response error
+ */
+export function getErrorMessage(data: any, response: Response): string {
+  if (typeof data === 'string') {
+    return data;
   }
-  if (err instanceof Error) {
-    return err.message;
+  if (data && data.message) {
+    return data.message;
   }
-  return String(err);
+  return response.statusText;
 }
 
 /**
- * Best-effort extraction of a human-readable message from server error payloads.
+ * Extract message from a ServerConnection.ResponseError
  */
-export function getErrorMessage(data: any, response?: Response): string {
-  if (data !== null) {
-    if (typeof data === 'string') {
-      return data;
-    }
-    return data.message || response?.statusText || 'Unknown error';
-  } else {
-    return response?.statusText || 'Unknown error';
+export function messageFromResponseError(err: any): string {
+  if (err && err.message) {
+    return err.message;
   }
+  if (err && err.response) {
+    return err.response.statusText || 'Unknown error';
+  }
+  return 'Unknown error';
 }
 
-export async function showFileLockWarning(message: string) {
-  return showErrorMessage(
-    'File lock warning',
-    message,
-    [Dialog.okButton()]
-  );
+/**
+ * Show file lock error dialog (blocking error - cannot open file)
+ */
+export async function showFileLockError(message: string): Promise<void> {
+  await showDialog({
+    title: 'File Locked',
+    body: message,
+    buttons: [Dialog.okButton({ label: 'OK' })]
+  });
+}
+
+/**
+ * Show file lock warning dialog (non-blocking - file opened in read-only mode)
+ */
+export async function showFileLockWarning(message: string): Promise<void> {
+  await showDialog({
+    title: 'Read-Only Mode',
+    body: message + '\n\nYou can view and edit the document locally, but changes will not be saved.',
+    buttons: [Dialog.okButton({ label: 'Continue' })],
+    hasClose: false
+  });
 }

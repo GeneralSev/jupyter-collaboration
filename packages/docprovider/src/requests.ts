@@ -5,7 +5,7 @@
 
 import { URLExt } from '@jupyterlab/coreutils';
 import { ServerConnection, Contents } from '@jupyterlab/services';
-import { getErrorMessage, showFileLockWarning } from './file_lock';
+import { getErrorMessage, showFileLockError, showFileLockWarning } from './file_lock';
 
 /**
  * Document session endpoint provided by `jupyter_collaboration`
@@ -37,18 +37,14 @@ export interface ISessionModel {
    * Server session identifier
    */
   sessionId: string;
-
   /**
-   * True when the document is opened while another user holds the lock.
-   * In that case, the frontend must enforce read-only behavior.
+   * Whether the file is opened in read-only mode (locked by another user)
    */
   readOnly?: boolean;
-
   /**
-   * Username of lock owner (if readOnly is true), otherwise null/undefined.
+   * Username of the user who has locked the file
    */
-  lockedBy?: string | null;
-
+  lockedBy?: string;
 }
 
 
@@ -88,7 +84,7 @@ export async function requestAPI<T = any>(
     const message = getErrorMessage(data, response);
 
     if (response.status === 423) {
-      void showFileLockWarning(message);
+      void showFileLockError(message);
     }
 
     throw new ServerConnection.ResponseError(response, message);
@@ -132,13 +128,23 @@ export async function requestDocSession(
 
   if (!response.ok) {
     const message = getErrorMessage(data, response);
-    throw new ServerConnection.ResponseError(response, data.message || message || data);
+
+    if (response.status === 423) {
+      void showFileLockError(message);
+    }
+
+    throw new ServerConnection.ResponseError(response, data.message || data);
   }
 
-  (data as ISessionModel).readOnly = Boolean((data as ISessionModel).readOnly);
-  (data as ISessionModel).lockedBy = (data as ISessionModel).lockedBy ?? null;
+  // Show warning if file is opened in read-only mode
+  const sessionData = data as ISessionModel;
+  if (sessionData.readOnly && sessionData.lockedBy) {
+    void showFileLockWarning(
+      `File currently in use by ${sessionData.lockedBy.toUpperCase()}. Opened in read-only mode.`
+    );
+  }
 
-  return data as ISessionModel;
+  return sessionData;
 }
 
 export async function requestDocumentTimeline(

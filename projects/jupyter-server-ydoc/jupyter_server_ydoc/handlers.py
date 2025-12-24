@@ -45,12 +45,6 @@ FORK_DOCUMENTS = {}
 FORK_ROOMS: dict[str, dict[str, str]] = {}
 
 
-def get_file_lock_error_message(username: str = '') -> str:
-    return (
-        f"File currently in use by another user: {username.upper()}"
-    )  # error cannot be longer than 125 chars for self.close methods below
-
-
 class YDocWebSocketHandler(WebSocketHandler, JupyterHandler):
     """`YDocWebSocketHandler` uses the singleton pattern for ``WebsocketServer``,
     which is a subclass of ypy-websocket's ``WebsocketServer``.
