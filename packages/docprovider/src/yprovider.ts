@@ -200,8 +200,8 @@ export class WebSocketProvider implements IDocumentProvider, IForkProvider {
       );
     }
 
-    this._yWebsocketProvider.on('sync', this._onSync);
-    this._yWebsocketProvider.on('connection-close', this._onConnectionClosed);
+    this._yWebsocketProvider!.on('sync', this._onSync);
+    this._yWebsocketProvider!.on('connection-close', this._onConnectionClosed);
 
     this._installRawMessageHandler();
   }
