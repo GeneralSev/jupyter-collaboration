@@ -430,6 +430,15 @@ class YDocWebSocketHandler(WebSocketHandler, JupyterHandler):
         # Release lock only if we're not in read-only mode
         if not getattr(self, "_is_read_only", False):
             asyncio.create_task(self._release_doc_lock_best_effort())
+        else:
+            try:
+                reset_msg = {
+                    "type": "reset",
+                    "message": "Discarding unsaved changes from read-only session"
+                }
+                asyncio.create_task(self.send(self._encode_json_message(reset_msg)))
+            except Exception:
+               pass  # Connection might already be closing
 
         # stop serving this client
         if isinstance(self.room, DocumentRoom) and self.room.clients == {self}:
