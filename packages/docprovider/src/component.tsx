@@ -183,6 +183,13 @@ export const TimelineSliderComponent: React.FC<Props> = ({
     <div className="jp-sliderContainer">
       <div
         onClick={() => {
+          if (provider.isReadOnly) {
+            Notification.error(
+              'Document timeline cannot be used when notebook is open in read only mode.',
+              { autoClose: 3000 }
+            );
+            return;
+          }
           fetchTimeline(extractFilenameFromURL(apiURL));
         }}
         className="jp-mod-highlighted"

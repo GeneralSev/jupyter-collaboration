@@ -46,6 +46,7 @@ export interface IForkProvider {
   reconnect: () => Promise<void>;
   contentType: string;
   format: string;
+  isReadOnly?: boolean;
 }
 
 namespace RtcContentProvider {
