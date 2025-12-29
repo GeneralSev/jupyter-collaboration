@@ -4,3 +4,7 @@
 |---------------------------------------------------------------------------- */
 
 @import url('./base.css');
+
+.jp-ReadOnlyNotification .jp-Notification-close {
+  display: none;
+}

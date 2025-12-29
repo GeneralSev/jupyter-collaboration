@@ -408,12 +408,12 @@ export class RtcContentProvider implements IContentProvider {
       const updateNotification = (readOnly: boolean) => {
         if (readOnly) {
           if (!notificationId) {
-            notificationId = Notification.info(
+            notificationId = Notification.warning(
               this._trans.__(
-                '"%1" open in read-only mode',
+                '"%1" open in read-only mode.',
                 PathExt.basename(path)
               ),
-              { autoClose: false }
+              { autoClose: false, className: 'jp-ReadOnlyNotification' }
             );
           }
         } else {
