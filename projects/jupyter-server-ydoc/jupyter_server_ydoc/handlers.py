@@ -313,7 +313,7 @@ class YDocWebSocketHandler(WebSocketHandler, JupyterHandler):
                     )
 
                 # Clean up the room and delete the file loader
-                if len(self.room.clients) == 0 or self.room.clients == {self}:
+                if len(self.room.clients) == 0 or self.room.clients == {self} or self._is_read_only:
                     self._message_queue.put_nowait(b"")
                     self._cleanup_delay = 0
                     await self._clean_room()
@@ -427,8 +427,11 @@ class YDocWebSocketHandler(WebSocketHandler, JupyterHandler):
         if task is not None:
             task.cancel()
 
-        # Release lock only if we're not in read-only mode
-        if not getattr(self, "_is_read_only", False):
+        if getattr(self, "_is_read_only", False):
+            # instantly clean room if document was opened in read-only mode
+            self._cleanup_delay = 0
+        else:
+            # Release lock only if we're not in read-only mode
             asyncio.create_task(self._release_doc_lock_best_effort())
 
         # stop serving this client
