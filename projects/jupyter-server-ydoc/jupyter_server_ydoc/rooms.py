@@ -10,7 +10,7 @@ from typing import Any, Callable
 from jupyter_events import EventLogger
 from jupyter_ydoc import ydocs as YDOCS
 from pycrdt.websocket import YRoom
-from pycrdt.store import BaseYStore, YDocNotFound, SQLiteYStore
+from pycrdt.store import BaseYStore, YDocNotFound
 
 from .loaders import FileLoader
 from .utils import JUPYTER_COLLABORATION_EVENTS_URI, LogLevel, OutOfBandChanges
@@ -205,22 +205,6 @@ class DocumentRoom(YRoom):
         # TODO: Should we cancel or wait ?
         if self._saving_document:
             self._saving_document.cancel()
-
-        # Clear YStore updates if in read-only mode. This prevents stale local changes from persisting.
-        if self._read_only and self.ystore:
-            try:
-                self.log.info(
-                    "Clearing YStore for read-only room %s to prevent stale cache",
-                    self._room_id
-                )
-                # Clear all stored updates for this document
-                await self.ystore.clear()
-            except Exception as e:
-                self.log.warning(
-                    "Failed to clear YStore for read-only room %s: %s",
-                    self._room_id,
-                    e
-                )
 
         self._document.unobserve()
         self._file.unobserve(self.room_id)

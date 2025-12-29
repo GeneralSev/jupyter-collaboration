@@ -110,9 +110,6 @@ export class WebSocketProvider implements IDocumentProvider, IForkProvider {
       return;
     }
     this._isDisposed = true;
-    if (this._isReadOnly) {
-      this._clearReadOnlyState();
-    }
     this._yWebsocketProvider?.off('connection-close', this._onConnectionClosed);
     this._yWebsocketProvider?.off('sync', this._onSync);
     this._yWebsocketProvider?.off('message', this._onMessage);
@@ -121,73 +118,12 @@ export class WebSocketProvider implements IDocumentProvider, IForkProvider {
     Signal.clearData(this);
   }
 
-  /**
-   * Clear local document state to prevent caching unsaved changes
-   */
-  private _clearReadOnlyState(): void {
-    try {
-      console.log('Clearing read-only document state to prevent stale cache');
-
-      // Clear all local state by destroying and recreating
-      // Note: This is aggressive but ensures no stale data
-      if (this._yWebsocketProvider) {
-        // Destroy provider first
-        this._yWebsocketProvider.destroy();
-        this._yWebsocketProvider = null;
-      }
-
-      // Clear IndexedDB cache if using y-indexeddb
-      this._clearIndexedDBCache();
-
-    } catch (error) {
-      console.error('Error clearing read-only state:', error);
-    }
-  }
-
-  /**
-   * Clear IndexedDB cache for this document
-   */
-  private _clearIndexedDBCache(): void {
-    try {
-      // Clear y-indexeddb cache
-      const dbName = `y-indexeddb-${this._path}`;
-
-      // Request to delete the database
-      const deleteRequest = indexedDB.deleteDatabase(dbName);
-
-      deleteRequest.onsuccess = () => {
-        console.log(`Cleared IndexedDB cache for ${this._path}`);
-      };
-
-      deleteRequest.onerror = (event) => {
-        console.warn('Error clearing IndexedDB cache:', event);
-      };
-
-      deleteRequest.onblocked = () => {
-        console.warn('IndexedDB deletion blocked (may have open connections)');
-      };
-    } catch (error) {
-      console.warn('Error requesting IndexedDB deletion:', error);
-    }
-  }
-
   async reconnect(): Promise<void> {
     this._disconnect();
     this._connect();
   }
 
   private async _connect(): Promise<void> {
-    const storageKey = `should-reload-${this._path}`;
-    const shouldReload = sessionStorage.getItem(storageKey);
-
-    if (shouldReload === 'true') {
-      console.log('Forcing document reload (was previously read-only)');
-      sessionStorage.removeItem(storageKey);
-
-      // Clear any cached state before connecting
-      this._clearLocalCache();
-    }
-
     let session;
     try {
       session = await requestDocSession(
@@ -243,32 +179,6 @@ export class WebSocketProvider implements IDocumentProvider, IForkProvider {
     this._yWebsocketProvider.on('message', this._onMessage);
   }
 
-  /**
-   * Clear local cache to force fresh load from server
-   */
-  private _clearLocalCache(): void {
-    try {
-      // Clear y-indexeddb
-      const dbName = `y-indexeddb-${this._path}`;
-      indexedDB.deleteDatabase(dbName);
-
-      // Clear any browser cache entries
-      if ('caches' in window) {
-        caches.keys().then(names => {
-          names.forEach(name => {
-            if (name.includes(this._path)) {
-              caches.delete(name);
-            }
-          });
-        });
-      }
-
-      console.log('Local cache cleared for document');
-    } catch (error) {
-      console.warn('Error clearing local cache:', error);
-    }
-  }
-
   async connectToForkDoc(forkRoomId: string, sessionId: string): Promise<void> {
     this._disconnect();
     this._yWebsocketProvider = new YWebsocketProvider(
@@ -316,10 +226,6 @@ export class WebSocketProvider implements IDocumentProvider, IForkProvider {
             this._readOnlyChanged.emit(true);
           }
         }
-        else if (message.type === 'reset') {
-          console.log('Server requesting document reset:', message.message);
-          this._resetDocument();
-        }
       } catch {
         // Not a JSON message, ignore
       }
@@ -327,21 +233,6 @@ export class WebSocketProvider implements IDocumentProvider, IForkProvider {
       console.error('Error processing message:', error);
     }
   };
-
-  /**
-   * Reset document to clean state
-   */
-  private _resetDocument(): void {
-    try {
-      // Mark that we should reload on next open
-      const storageKey = `should-reload-${this._path}`;
-      sessionStorage.setItem(storageKey, 'true');
-
-      console.log('Document marked for reload on next open');
-    } catch (error) {
-      console.error('Error marking document for reset:', error);
-    }
-  }
 
   private _onConnectionClosed = (event: any): void => {
     if (event.code === 1003) {

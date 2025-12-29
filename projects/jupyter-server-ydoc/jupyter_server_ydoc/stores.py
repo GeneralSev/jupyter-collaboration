@@ -41,19 +41,3 @@ class SQLiteYStore(LoggingConfigurable, _SQLiteYStore, metaclass=SQLiteYStoreMet
         help="""The document time-to-live in seconds. Deprecated in favor of 'squash_after_inactivity_of'.
         Defaults to None (document history is never cleared).""",
     )
-
-    async def clear(self) -> None:
-        """
-        Clear all updates for this document from the store.
-        """
-        async with self._db_lock:
-            try:
-                await self._db.execute(
-                    "DELETE FROM yupdates WHERE path = ?",
-                    (self.path,)
-                )
-                await self._db.commit()
-                self.log.info("Cleared YStore for path: %s", self.path)
-            except Exception as e:
-                self.log.error("Error clearing YStore: %s", e)
-                raise
