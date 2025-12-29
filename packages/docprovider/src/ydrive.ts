@@ -1,8 +1,9 @@
 // Copyright (c) Jupyter Development Team.
 // Distributed under the terms of the Modified BSD License.
 
-import { PageConfig, URLExt } from '@jupyterlab/coreutils';
+import { PageConfig, URLExt, PathExt } from '@jupyterlab/coreutils';
 import { TranslationBundle } from '@jupyterlab/translation';
+import { Notification } from '@jupyterlab/apputils';
 import {
   Contents,
   IContentProvider,
@@ -401,6 +402,45 @@ export class RtcContentProvider implements IContentProvider {
 
         // Disconnect signal
         this._driveFileChanged?.disconnect(handleFileChangedSignal);
+      });
+
+      let notificationId: string | null = null;
+      const updateNotification = (readOnly: boolean) => {
+        if (readOnly) {
+          if (!notificationId) {
+            notificationId = Notification.info(
+              this._trans.__(
+                '"%1" open in read-only mode',
+                PathExt.basename(path)
+              ),
+              { autoClose: false }
+            );
+          }
+        } else {
+          if (notificationId) {
+            Notification.dismiss(notificationId);
+            notificationId = null;
+          }
+        }
+      };
+
+      provider.readOnlyChanged.connect((_, readOnly: boolean) => {
+        updateNotification(readOnly);
+      });
+
+      provider.ready
+        .then(() => {
+          updateNotification(provider.isReadOnly);
+        })
+        .catch(e => {
+          // no-op
+        });
+
+      sharedModel.disposed.connect(() => {
+        if (notificationId) {
+          Notification.dismiss(notificationId);
+          notificationId = null;
+        }
       });
     } catch (error) {
       // Falling back to the contents API if opening the websocket failed
