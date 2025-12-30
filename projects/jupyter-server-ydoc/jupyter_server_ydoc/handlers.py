@@ -111,7 +111,7 @@ class YDocWebSocketHandler(WebSocketHandler, JupyterHandler):
                 acquired, info = await lock_mgr.try_acquire(self._lock_key, self._lock_owner)
                 if not acquired:
                     self._is_read_only = True
-                    self._lock_denied_reason = f"File currently in use by {info.owner.upper()}. Opened in read-only mode."
+                    self._lock_denied_reason = f"File currently in use by {info.owner.upper()}; opened in read-only mode."
                     self.log.info(
                         "Opening in READ-ONLY mode: user=%s key=%s locked_by=%s",
                         self._lock_owner, self._lock_key, getattr(info, "owner", None)
