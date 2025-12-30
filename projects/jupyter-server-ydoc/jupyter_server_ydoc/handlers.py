@@ -354,6 +354,24 @@ class YDocWebSocketHandler(WebSocketHandler, JupyterHandler):
                     "type": "save",
                     "responseTo": save_id,
                 }
+                
+                # Check for read-only mode *before* attempting save
+                if getattr(self, "_is_read_only", False):
+                    reason = getattr(self, "_lock_denied_reason", "")
+                    if reason:
+                        error_msg = f"{reason}\n\nSaving is not allowed."
+                    else:
+                        error_msg = "File currently in use by another user. Saving is not allowed."
+                        
+                    await self.send(
+                        self._encode_json_message({
+                            **save_reply, 
+                            "status": "failed",
+                            "error": error_msg
+                        })
+                    )
+                    return
+
                 try:
                     room = cast(DocumentRoom, self.room)
                     save_task = room._save_to_disc()

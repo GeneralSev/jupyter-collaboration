@@ -167,6 +167,7 @@ export class RtcContentProvider implements IContentProvider {
               type: 'save';
               responseTo: number;
               status: 'success' | 'skipped' | 'failed';
+              error?: string;
             } | null = null;
             try {
               reply = JSON.parse(rawReply);
@@ -181,7 +182,7 @@ export class RtcContentProvider implements IContentProvider {
               if (reply.status === 'success') {
                 delegate.resolve();
               } else if (reply.status === 'failed') {
-                delegate.reject('Saving failed');
+                delegate.reject(reply.error || 'Saving failed');
               } else if (reply.status === 'skipped') {
                 delegate.reject('Saving already in progress');
               } else {
