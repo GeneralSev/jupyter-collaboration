@@ -183,6 +183,11 @@ class DocumentRoom(YRoom):
             self.ready = True
             self._emit(LogLevel.INFO, "initialize", "Room initialized")
 
+            # Immediately initiate a save action after creation. This is needed to make read only mode work for new notebooks
+            self._saving_document = asyncio.create_task(
+                self._maybe_save_document(self._saving_document)
+            )
+
     def _emit(self, level: LogLevel, action: str | None = None, msg: str | None = None) -> None:
         data = {"level": level.value, "room": self._room_id, "path": self._file.path}
         if action:
