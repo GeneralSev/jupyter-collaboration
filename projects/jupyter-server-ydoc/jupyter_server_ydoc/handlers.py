@@ -567,11 +567,20 @@ class DocSessionHandler(APIHandler):
         file_id_manager = self.settings["file_id_manager"]
 
         idx = file_id_manager.get_id(path)
+        created = False
+        
+        if idx is None:
+            # try indexing
+            idx = file_id_manager.index(path)
+            if idx is None:
+                # file does not exists
+                raise web.HTTPError(404, f"File {path!r} does not exist")
+            created = True
 
         # Check if file is locked (but don't fail - just track it)
         is_read_only = False
         lock_owner = None
-        file_rel_path = file_id_manager.get_path(idx) if idx is not None else None
+        file_rel_path = file_id_manager.get_path(idx)
 
         if file_rel_path is not None:
             file_rel_path_first_part = Path(file_rel_path).parts[0]
@@ -587,30 +596,7 @@ class DocSessionHandler(APIHandler):
                 else:
                     # Release immediately - session endpoint should be non-locking
                     await lock_mgr.release(lock_key, owner)
-
-        if idx is not None:
-            # index already exists
-            self.log.info("Request for Y document '%s' with room ID: %s", path, idx)
-            data = json.dumps(
-                {
-                    "format": format,
-                    "type": content_type,
-                    "fileId": idx,
-                    "sessionId": SERVER_SESSION,
-                    "readOnly": is_read_only,
-                    "lockedBy": lock_owner,
-                }
-            )
-            self.set_status(200)
-            return self.finish(data)
-
-        # try indexing
-        idx = file_id_manager.index(path)
-        if idx is None:
-            # file does not exists
-            raise web.HTTPError(404, f"File {path!r} does not exist")
-
-        # index successfully created
+        
         self.log.info("Request for Y document '%s' with room ID: %s", path, idx)
         data = json.dumps(
             {
@@ -622,7 +608,7 @@ class DocSessionHandler(APIHandler):
                 "lockedBy": lock_owner,
             }
         )
-        self.set_status(201)
+        self.set_status(201 if created else 200)
         return self.finish(data)
 
 
