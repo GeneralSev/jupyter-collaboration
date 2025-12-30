@@ -412,7 +412,7 @@ export class RtcContentProvider implements IContentProvider {
           if (!notificationId) {
             notificationId = Notification.warning(
               this._trans.__(
-                '"%1" open in read-only mode.',
+                '"%1" is open in read-only mode.',
                 PathExt.basename(path)
               ),
               { autoClose: false }
