@@ -415,7 +415,7 @@ export class RtcContentProvider implements IContentProvider {
                 '"%1" open in read-only mode.',
                 PathExt.basename(path)
               ),
-              { autoClose: false, className: 'jp-ReadOnlyNotification' } as any
+              { autoClose: false }
             );
           }
         } else {
