@@ -50,10 +50,15 @@ class YDocExtension(ExtensionApp):
     )
 
     lock_ttl_seconds = Float(
-        120.0,
-        # TODO (DBN) change to 600 after testing -- DBN 22.Dec.2025
+        30,
         config=True,
-        help="Seconds after which a lock is considered stale if no heartbeat."
+        help="Time to live - Seconds after which a file lock is considered stale if no heartbeat."
+    )
+
+    heartbeat_interval_seconds = Float(
+        30,
+        config=True,
+        help="Interval after which the heartbeat is updated."
     )
 
     file_poll_interval = Float(
@@ -120,7 +125,7 @@ class YDocExtension(ExtensionApp):
                 "collaborative_ystore_class": self.ystore_class,
                 "collaborative_lock_db_path": self.lock_db_path,
                 "collaborative_lock_ttl_seconds": self.lock_ttl_seconds,
-
+                "collaborative_heartbeat_interval_seconds": self.heartbeat_interval_seconds,
             }
         )
 
