@@ -140,7 +140,7 @@ export async function requestDocSession(
   const sessionData = data as ISessionModel;
   if (sessionData.readOnly && sessionData.lockedBy) {
     void showFileLockWarning(
-      `File currently in use by ${sessionData.lockedBy.toUpperCase()}; opened in read-only mode.`
+      sessionData.lockedBy
     );
   }
 
