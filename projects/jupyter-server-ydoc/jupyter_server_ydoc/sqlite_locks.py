@@ -31,7 +31,7 @@ class SQLiteDocumentLockManager:
         """Cross-process exclusive locks stored in SQLite.
 
         Parameters:
-        db_path: str
+        db_path: str | Path
             The file path to the database.
         ttl_seconds: float, optional
             The time-to-live (TTL) for each lock before it expires without a heartbeat.
@@ -46,8 +46,8 @@ class SQLiteDocumentLockManager:
         self.cleanup_on_access = bool(cleanup_on_access)
 
         # NOTE:
-        # This will not work on Jupyter VM because this python process will not have read-write access to /srv
-        # The directory and db file will have to be created manually with the correct permissions. E.g.:
+        # This does not work on JupyterHub because this python process will not have read-write access to /srv
+        # The directory and db file have to be created manually with the correct permissions. E.g.:
         #
         #   sudo mkdir -p 666 /srv/collaboration
         #   sudo touch /srv/collaboration/collaboration_locks.db
