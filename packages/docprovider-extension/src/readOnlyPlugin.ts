@@ -9,7 +9,6 @@ import {
 } from '@jupyterlab/application';
 import {
     ICollaborativeContentProvider,
-    IDocumentProvider
 } from '@jupyter/collaborative-drive';
 import { IEditorTracker } from '@jupyterlab/fileeditor';
 import { INotebookTracker } from '@jupyterlab/notebook';
