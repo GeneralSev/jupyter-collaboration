@@ -405,45 +405,6 @@ export class RtcContentProvider implements IContentProvider {
         // Disconnect signal
         this._driveFileChanged?.disconnect(handleFileChangedSignal);
       });
-
-      let notificationId: string | null = null;
-      const updateNotification = (readOnly: boolean) => {
-        if (readOnly) {
-          if (!notificationId) {
-            notificationId = Notification.warning(
-              this._trans.__(
-                '"%1" is open in read-only mode.',
-                PathExt.basename(path)
-              ),
-              { autoClose: false }
-            );
-          }
-        } else {
-          if (notificationId) {
-            Notification.dismiss(notificationId);
-            notificationId = null;
-          }
-        }
-      };
-
-      provider.readOnlyChanged.connect((_, readOnly: boolean) => {
-        updateNotification(readOnly);
-      });
-
-      provider.ready
-        .then(() => {
-          updateNotification(provider.isReadOnly);
-        })
-        .catch(e => {
-          // no-op
-        });
-
-      sharedModel.disposed.connect(() => {
-        if (notificationId) {
-          Notification.dismiss(notificationId);
-          notificationId = null;
-        }
-      });
     } catch (error) {
       // Falling back to the contents API if opening the websocket failed
       //  This may happen if the shared document is not a YDocument.
