@@ -151,7 +151,6 @@ export class WebSocketProvider implements IDocumentProvider, IForkProvider {
         // best effort
       }
 
-      // Re-throw so document open flow stops spinning
       throw err;
     }
 
