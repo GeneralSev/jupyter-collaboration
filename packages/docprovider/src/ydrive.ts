@@ -1,9 +1,8 @@
 // Copyright (c) Jupyter Development Team.
 // Distributed under the terms of the Modified BSD License.
 
-import { PageConfig, URLExt, PathExt } from '@jupyterlab/coreutils';
+import { PageConfig, URLExt } from '@jupyterlab/coreutils';
 import { TranslationBundle } from '@jupyterlab/translation';
-import { Notification } from '@jupyterlab/apputils';
 import {
   Contents,
   IContentProvider,
