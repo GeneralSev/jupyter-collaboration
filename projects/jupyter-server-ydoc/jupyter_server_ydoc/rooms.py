@@ -58,13 +58,12 @@ class DocumentRoom(YRoom):
         # Listen for document changes
         self._document.observe(self._on_document_change)
 
-        # Only observe file changes if NOT in read-only mode
-        if not self._read_only:
-            self._file.observe(self.room_id, self._on_outofband_change, self._on_filepath_change)
-        else:
-            # In read-only mode, only observe filepath changes (no content sync)
+        if self._read_only:
             self._file.observe(self.room_id, None, self._on_filepath_change)
             self.log.info("Room %s initialized in READ-ONLY mode", self._room_id)
+        else:
+            # Only handle out-of-band changes if NOT in read-only mode
+            self._file.observe(self.room_id, self._on_outofband_change, self._on_filepath_change)
 
     @property
     def read_only(self) -> bool:

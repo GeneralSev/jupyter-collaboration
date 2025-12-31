@@ -88,11 +88,10 @@ class YDocWebSocketHandler(WebSocketHandler, JupyterHandler):
         # Get room
         self._room_id: str = room_id_from_encoded_path(self.request.path)
 
-        # Initialize read-only mode flag
+        # --------- START: manage file locking
         self._is_read_only = False
         self._lock_denied_reason = None
 
-        # --------- START: manage file locking
         if self._room_id.count(":") >= 2:
             file_format, file_type, file_id = decode_file_path(self._room_id)
 
@@ -266,7 +265,6 @@ class YDocWebSocketHandler(WebSocketHandler, JupyterHandler):
         """
         # Send read-only warning if applicable
         if self._is_read_only and self._lock_denied_reason:
-            # Send warning message to client
             warning_msg = {
                 "type": "warning",
                 "message": self._lock_denied_reason,
@@ -315,7 +313,7 @@ class YDocWebSocketHandler(WebSocketHandler, JupyterHandler):
                 # Clean up the room and delete the file loader
                 if len(self.room.clients) == 0 or self.room.clients == {self} or self._is_read_only:
                     self._message_queue.put_nowait(b"")
-                    self._cleanup_delay = 0
+                    self._cleanup_delay = 0  # to ensure local changes don't linger after opening files in read-only mode
                     await self._clean_room()
 
             self._emit(LogLevel.INFO, "initialize", "New client connected.")
@@ -447,7 +445,6 @@ class YDocWebSocketHandler(WebSocketHandler, JupyterHandler):
             # instantly clean room if document was opened in read-only mode
             self._cleanup_delay = 0
         else:
-            # Release lock only if we're not in read-only mode
             asyncio.create_task(self._release_doc_lock_best_effort())
 
         # stop serving this client
