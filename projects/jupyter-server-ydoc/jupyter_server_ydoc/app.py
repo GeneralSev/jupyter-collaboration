@@ -56,7 +56,7 @@ class YDocExtension(ExtensionApp):
     )
 
     heartbeat_interval_seconds = Float(
-        30,
+        10,
         config=True,
         help="Interval after which the heartbeat is updated."
     )
