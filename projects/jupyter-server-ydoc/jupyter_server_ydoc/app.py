@@ -44,7 +44,7 @@ class YDocExtension(ExtensionApp):
     disable_rtc = Bool(False, config=True, help="Whether to disable real time collaboration.")
 
     lock_db_path = Unicode(
-        "/data/srv/collaboration/collaboration_locks.db",
+        "/srv/collaboration/collaboration_locks.db",
         config=True,
         help="Path to the shared SQLite DB used for global document locks."
     )
