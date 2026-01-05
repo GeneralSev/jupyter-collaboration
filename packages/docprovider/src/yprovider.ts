@@ -7,9 +7,8 @@ import { IDocumentProvider } from '@jupyter/collaborative-drive';
 import { showErrorMessage, Dialog } from '@jupyterlab/apputils';
 import { User } from '@jupyterlab/services';
 import { TranslationBundle } from '@jupyterlab/translation';
-import { ServerConnection } from '@jupyterlab/services';
 import { PromiseDelegate } from '@lumino/coreutils';
-import { Signal, ISignal } from '@lumino/signaling';
+import { Signal } from '@lumino/signaling';
 
 import { DocumentChange, YDocument } from '@jupyter/ydoc';
 
@@ -18,7 +17,6 @@ import { WebsocketProvider as YWebsocketProvider } from 'y-websocket';
 
 import { requestDocSession } from './requests';
 import { IForkProvider } from './ydrive';
-import { messageFromResponseError, showFileLockError } from './file_lock';
 
 /**
  * A class to provide Yjs synchronization over WebSocket.
@@ -36,7 +34,6 @@ export class WebSocketProvider implements IDocumentProvider, IForkProvider {
   constructor(options: WebSocketProvider.IOptions) {
     this._isDisposed = false;
     this._isReadOnly = false;
-    this._lockedBy = null;
     this._path = options.path;
     this._contentType = options.contentType;
     this._format = options.format;
@@ -45,7 +42,6 @@ export class WebSocketProvider implements IDocumentProvider, IForkProvider {
     this._awareness = options.model.awareness;
     this._yWebsocketProvider = null;
     this._trans = options.translator;
-    this._readOnlyChanged = new Signal(this);
 
     const user = options.user;
 
@@ -71,20 +67,6 @@ export class WebSocketProvider implements IDocumentProvider, IForkProvider {
    */
   get isReadOnly(): boolean {
     return this._isReadOnly;
-  }
-
-  /**
-   * Get the username of the user who has locked the file (if in read-only mode).
-   */
-  get lockedBy(): string | null {
-    return this._lockedBy;
-  }
-
-  /**
-   * A signal emitted when the read-only status changes.
-   */
-  get readOnlyChanged(): ISignal<this, boolean> {
-    return this._readOnlyChanged;
   }
 
   /**
@@ -124,42 +106,18 @@ export class WebSocketProvider implements IDocumentProvider, IForkProvider {
   }
 
   private async _connect(): Promise<void> {
-    let session;
-    try {
-      session = await requestDocSession(
-        this._format,
-        this._contentType,
-        this._path
-      );
-    } catch (err) {
-      const msg = messageFromResponseError(err);
+    const session = await requestDocSession(
+      this._format,
+      this._contentType,
+      this._path,
+    );
 
-      const isLocked =
-        err instanceof ServerConnection.ResponseError &&
-        err.response?.status === 423;
-
-      if (isLocked) {
-        void showFileLockError(msg);
-      }
-
-      try {
-        this._onConnectionClosed?.({
-          code: 423,
-          reason: msg
-        } as any);
-      } catch {
-        // best effort
-      }
-
-      throw err;
-    }
-
-    // Set read-only mode based on session response
+    // Set read-only mode based on session response. Used in:
+    // -> `packages/docprovider-extension/src/readOnlyPlugin.ts`
+    // -> `packages/docprovider/src/component.tsx`
     if (session.readOnly) {
       this._isReadOnly = true;
-      this._lockedBy = session.lockedBy || null;
-      this._readOnlyChanged.emit(true);
-      console.log(`Document opened in read-only mode (locked by: ${this._lockedBy})`);
+      console.log(`Document opened in read-only mode`);
     }
 
     this._yWebsocketProvider = new YWebsocketProvider(
@@ -222,7 +180,6 @@ export class WebSocketProvider implements IDocumentProvider, IForkProvider {
           // Update read-only state if not already set
           if (!this._isReadOnly) {
             this._isReadOnly = true;
-            this._readOnlyChanged.emit(true);
           }
         }
       } catch {
@@ -244,9 +201,6 @@ export class WebSocketProvider implements IDocumentProvider, IForkProvider {
       // Dispose shared model immediately. Better break the document model,
       // than overriding data on disk.
       this._sharedModel.dispose();
-    } else if (event.code === 423) {
-      void showFileLockError(event.reason);
-      this._sharedModel.dispose();
     }
   };
 
@@ -267,10 +221,8 @@ export class WebSocketProvider implements IDocumentProvider, IForkProvider {
   private _format: string;
   private _isDisposed: boolean;
   private _isReadOnly: boolean;
-  private _lockedBy: string | null;
   private _path: string;
   private _ready = new PromiseDelegate<void>();
-  private _readOnlyChanged: Signal<this, boolean>;
   private _serverUrl: string;
   private _sharedModel: YDocument<DocumentChange>;
   private _yWebsocketProvider: YWebsocketProvider | null;
