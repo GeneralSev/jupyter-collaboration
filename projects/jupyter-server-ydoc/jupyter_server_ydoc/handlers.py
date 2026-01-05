@@ -263,14 +263,14 @@ class YDocWebSocketHandler(WebSocketHandler, JupyterHandler):
         """
         On connection open.
         """
-        # # Send read-only warning if applicable
-        # if self._is_read_only and self._lock_denied_reason:
-        #     warning_msg = {
-        #         "type": "warning",
-        #         "message": self._lock_denied_reason,
-        #         "readOnly": True
-        #     }
-        #     await self.send(self._encode_json_message(warning_msg))
+        # Send read-only warning if applicable
+        if self._is_read_only and self._lock_denied_reason:
+            warning_msg = {
+                "type": "warning",
+                "message": self._lock_denied_reason,
+                "readOnly": True
+            }
+            await self.send(self._encode_json_message(warning_msg))
 
         self.create_task(self._websocket_server.serve(self))
 
@@ -357,7 +357,7 @@ class YDocWebSocketHandler(WebSocketHandler, JupyterHandler):
                 if getattr(self, "_is_read_only", False):
                     reason = getattr(self, "_lock_denied_reason", "")
                     if reason:
-                        error_msg = f"{reason}\n\nSaving is not allowed."  # This is shown on pressing save.
+                        error_msg = f"{reason}\n\nSaving is not allowed."
                     else:
                         error_msg = "File currently in use by another user. Saving is not allowed."
                         
@@ -593,7 +593,6 @@ class DocSessionHandler(APIHandler):
                     await lock_mgr.release(lock_key, owner)
         
         self.log.info("Request for Y document '%s' with room ID: %s", path, idx)
-        # This is used to show warning message on opening a locked file in `packages/docprovider/src/requests.ts`
         data = json.dumps(
             {
                 "format": format,

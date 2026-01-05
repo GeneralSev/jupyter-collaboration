@@ -181,7 +181,6 @@ export class RtcContentProvider implements IContentProvider {
               if (reply.status === 'success') {
                 delegate.resolve();
               } else if (reply.status === 'failed') {
-                // Show error raised by backend on manual save (YDocWebSocketHandler.on_message in handlers.py)
                 delegate.reject(reply.error || 'Saving failed');
               } else if (reply.status === 'skipped') {
                 delegate.reject('Saving already in progress');
