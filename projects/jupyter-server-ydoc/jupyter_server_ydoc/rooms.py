@@ -296,7 +296,7 @@ class DocumentRoom(YRoom):
 
         self._saving_document = asyncio.create_task(
             self._maybe_save_document(
-                self._saving_documents,
+                saving_document=self._saving_document,
                 save_delay=self._save_delay  # use configured save delay for auto save
             )
         )
@@ -316,7 +316,7 @@ class DocumentRoom(YRoom):
 
         self._saving_document = asyncio.create_task(
             self._maybe_save_document(
-                self._saving_document,
+                saving_document=self._saving_document,
                 save_delay=0.0  # no delay with manual save
             )
         )

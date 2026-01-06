@@ -92,7 +92,7 @@ class YDocExtension(ExtensionApp):
         help="""The delay in seconds to wait after a change is made to a document before saving it.
         Defaults to 1s, if None then the document will never be saved.
         
-        TWD/This setting is not used. Configured behaviour: 
+        TWD/This setting is only used for autosave. Save delay is set to 0 sec for manual save.
         """,
     )
 
