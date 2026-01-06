@@ -5,7 +5,7 @@
 
 import { URLExt } from '@jupyterlab/coreutils';
 import { ServerConnection, Contents } from '@jupyterlab/services';
-import { getErrorMessage, showFileLockError, showFileLockWarning } from './file_lock';
+import { showFileLockWarning } from './file_lock';
 
 /**
  * Document session endpoint provided by `jupyter_collaboration`
@@ -81,16 +81,10 @@ export async function requestAPI<T = any>(
   }
 
   if (!response.ok) {
-    const message = getErrorMessage(data, response);
-
-    if (response.status === 423) {
-      void showFileLockError(message);
-    }
-
-    throw new ServerConnection.ResponseError(response, message);
+    throw new ServerConnection.ResponseError(response, data.message || data);
   }
 
-  return data as T;
+  return data;
 }
 
 export async function requestDocSession(
@@ -127,16 +121,9 @@ export async function requestDocSession(
   }
 
   if (!response.ok) {
-    const message = getErrorMessage(data, response);
-
-    if (response.status === 423) {
-      void showFileLockError(message);
-    }
-
     throw new ServerConnection.ResponseError(response, data.message || data);
   }
 
-  // Show warning if file is opened in read-only mode
   const sessionData = data as ISessionModel;
   if (sessionData.readOnly && sessionData.lockedBy) {
     void showFileLockWarning(
