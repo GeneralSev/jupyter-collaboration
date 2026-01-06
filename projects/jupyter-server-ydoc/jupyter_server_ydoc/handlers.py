@@ -25,7 +25,7 @@ from tornado.websocket import WebSocketHandler
 
 from .loaders import FileLoaderMapping
 from .rooms import DocumentRoom, TransientRoom
-from .sqlite_locks import SQLiteDocumentLockManager, FOLDERS_FOR_FILE_LOCKING
+from .sqlite_locks import SQLiteDocumentLockManager
 from .utils import (
     JUPYTER_COLLABORATION_AWARENESS_EVENTS_URI,
     JUPYTER_COLLABORATION_EVENTS_URI,
@@ -43,6 +43,8 @@ YFILE = YDOCS["file"]
 SERVER_SESSION = str(uuid.uuid4())
 FORK_DOCUMENTS = {}
 FORK_ROOMS: dict[str, dict[str, str]] = {}
+
+FOLDERS_FOR_FILE_LOCKING = ["Projects", "Personal"]
 
 
 class YDocWebSocketHandler(WebSocketHandler, JupyterHandler):

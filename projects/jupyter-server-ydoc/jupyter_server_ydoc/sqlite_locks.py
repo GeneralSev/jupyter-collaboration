@@ -7,8 +7,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Tuple
 
-FOLDERS_FOR_FILE_LOCKING = ["Projects", "Personal"]
-
 
 @dataclass
 class LockInfo:
