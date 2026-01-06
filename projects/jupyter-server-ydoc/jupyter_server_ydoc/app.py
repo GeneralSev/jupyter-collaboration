@@ -90,7 +90,10 @@ class YDocExtension(ExtensionApp):
         allow_none=True,
         config=True,
         help="""The delay in seconds to wait after a change is made to a document before saving it.
-        Defaults to 1s, if None then the document will never be saved.""",
+        Defaults to 1s, if None then the document will never be saved.
+        
+        TWD/This setting is not used. Configured behaviour: 
+        """,
     )
 
     ystore_class = Type(

@@ -295,7 +295,10 @@ class DocumentRoom(YRoom):
             return
 
         self._saving_document = asyncio.create_task(
-            self._maybe_save_document(self._saving_document)
+            self._maybe_save_document(
+                self._saving_documents,
+                save_delay=self._save_delay  # use configured save delay for auto save
+            )
         )
 
     def _save_to_disc(self):
@@ -312,11 +315,14 @@ class DocumentRoom(YRoom):
             return None
 
         self._saving_document = asyncio.create_task(
-            self._maybe_save_document(self._saving_document)
+            self._maybe_save_document(
+                self._saving_document,
+                save_delay=0.0  # no delay with manual save
+            )
         )
         return self._saving_document
 
-    async def _maybe_save_document(self, saving_document: asyncio.Task | None) -> None:
+    async def _maybe_save_document(self, saving_document: asyncio.Task | None, save_delay: float = 0) -> None:
         """
         Saves the content of the document to disk.
 
@@ -331,7 +337,7 @@ class DocumentRoom(YRoom):
             self.log.warning("Save attempted in read-only room %s - aborting", self._room_id)
             return
 
-        if self._save_delay is None:
+        if save_delay is None:
             return
         if saving_document is not None and not saving_document.done():
             # the document is being saved, cancel that
@@ -342,7 +348,7 @@ class DocumentRoom(YRoom):
 
         try:
             # save after X seconds of inactivity
-            await asyncio.sleep(self._save_delay)
+            await asyncio.sleep(save_delay)
 
             self.log.info("Saving the content from room %s", self._room_id)
             saved_model = await self._file.maybe_save_content(
