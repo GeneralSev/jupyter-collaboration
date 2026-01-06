@@ -78,7 +78,7 @@ class YDocExtension(ExtensionApp):
     )
 
     document_cleanup_delay = Float(
-        60,
+        0,
         allow_none=True,
         config=True,
         help="""The delay in seconds to keep a document in memory in the back-end after all clients
@@ -86,7 +86,7 @@ class YDocExtension(ExtensionApp):
     )
 
     document_save_delay = Float(
-        1,
+        60,
         allow_none=True,
         config=True,
         help="""The delay in seconds to wait after a change is made to a document before saving it.
