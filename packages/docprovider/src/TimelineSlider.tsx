@@ -14,13 +14,15 @@ export class TimelineWidget extends ReactWidget {
   private contentType: string;
   private format: string;
   private documentTimelineUrl: string;
+  private onSave: () => Promise<void>;
 
   constructor(
     apiURL: string,
     provider: IForkProvider,
     contentType: string,
     format: string,
-    documentTimelineUrl: string
+    documentTimelineUrl: string,
+    onSave: () => Promise<void>
   ) {
     super();
     this.apiURL = apiURL;
@@ -28,6 +30,7 @@ export class TimelineWidget extends ReactWidget {
     this.contentType = contentType;
     this.format = format;
     this.documentTimelineUrl = documentTimelineUrl;
+    this.onSave = onSave;
     this.addClass('jp-timelineSliderWrapper');
   }
 
@@ -40,6 +43,7 @@ export class TimelineWidget extends ReactWidget {
         contentType={this.contentType}
         format={this.format}
         documentTimelineUrl={this.documentTimelineUrl}
+        onSave={this.onSave}
       />
     );
   }

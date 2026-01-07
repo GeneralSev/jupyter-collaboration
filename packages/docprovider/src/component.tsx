@@ -20,6 +20,7 @@ type Props = {
   contentType: string;
   format: string;
   documentTimelineUrl: string;
+  onSave: () => Promise<void>;
 };
 
 export const TimelineSliderComponent: React.FC<Props> = ({
@@ -27,7 +28,8 @@ export const TimelineSliderComponent: React.FC<Props> = ({
   provider,
   contentType,
   format,
-  documentTimelineUrl
+  documentTimelineUrl,
+  onSave
 }) => {
   const [data, setData] = useState({
     roomId: '',
@@ -182,7 +184,7 @@ export const TimelineSliderComponent: React.FC<Props> = ({
   return (
     <div className="jp-sliderContainer">
       <div
-        onClick={() => {
+        onClick={async () => {
           if (provider.isReadOnly) {
             Notification.error(
               'Document timeline cannot be used when notebook is open in read only mode.',
@@ -190,6 +192,7 @@ export const TimelineSliderComponent: React.FC<Props> = ({
             );
             return;
           }
+          await onSave();
           fetchTimeline(extractFilenameFromURL(apiURL));
         }}
         className="jp-mod-highlighted"
