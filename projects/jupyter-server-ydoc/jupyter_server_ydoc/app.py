@@ -11,7 +11,7 @@ from jupyter_ydoc import ydocs as YDOCS
 from jupyter_ydoc.ybasedoc import YBaseDoc
 from pycrdt import Doc
 from pycrdt.store import BaseYStore
-from traitlets import Bool, Float, Type
+from traitlets import Bool, Type, Unicode, Float
 
 from .handlers import (
     DocForkHandler,
@@ -22,6 +22,7 @@ from .handlers import (
 )
 from .loaders import FileLoaderMapping
 from .rooms import DocumentRoom
+from .sqlite_locks import SQLiteDocumentLockManager
 from .stores import SQLiteYStore
 from .utils import (
     AWARENESS_EVENTS_SCHEMA_PATH,
@@ -42,6 +43,24 @@ class YDocExtension(ExtensionApp):
 
     disable_rtc = Bool(False, config=True, help="Whether to disable real time collaboration.")
 
+    lock_db_path = Unicode(
+        "/srv/collaboration/collaboration_locks.db",
+        config=True,
+        help="Path to the shared SQLite DB used for global document locks."
+    )
+
+    lock_ttl_seconds = Float(
+        30,
+        config=True,
+        help="Time to live - Seconds after which a file lock is considered stale if no heartbeat."
+    )
+
+    heartbeat_interval_seconds = Float(
+        10,
+        config=True,
+        help="Interval after which the heartbeat is updated."
+    )
+
     file_poll_interval = Float(
         1,
         config=True,
@@ -59,7 +78,7 @@ class YDocExtension(ExtensionApp):
     )
 
     document_cleanup_delay = Float(
-        60,
+        0,
         allow_none=True,
         config=True,
         help="""The delay in seconds to keep a document in memory in the back-end after all clients
@@ -67,11 +86,14 @@ class YDocExtension(ExtensionApp):
     )
 
     document_save_delay = Float(
-        1,
+        60,
         allow_none=True,
         config=True,
         help="""The delay in seconds to wait after a change is made to a document before saving it.
-        Defaults to 1s, if None then the document will never be saved.""",
+        Defaults to 1s, if None then the document will never be saved.
+        
+        TWD/This setting is only used for autosave. Save delay is set to 0 sec for manual save.
+        """,
     )
 
     ystore_class = Type(
@@ -104,6 +126,9 @@ class YDocExtension(ExtensionApp):
                 "collaborative_document_cleanup_delay": self.document_cleanup_delay,
                 "collaborative_document_save_delay": self.document_save_delay,
                 "collaborative_ystore_class": self.ystore_class,
+                "collaborative_lock_db_path": self.lock_db_path,
+                "collaborative_lock_ttl_seconds": self.lock_ttl_seconds,
+                "collaborative_heartbeat_interval_seconds": self.heartbeat_interval_seconds,
             }
         )
 
@@ -134,6 +159,14 @@ class YDocExtension(ExtensionApp):
             self.file_poll_interval,
             file_stop_poll_on_errors_after=self.file_stop_poll_on_errors_after,
         )
+
+        # file lock handler
+        self.lock_manager = SQLiteDocumentLockManager(
+            self.lock_db_path,
+            ttl_seconds=self.lock_ttl_seconds,
+        )
+        # Put it in global settings so handlers can access it
+        self.serverapp.web_app.settings["collaborative_lock_manager"] = self.lock_manager
 
         self.handlers.extend(
             [

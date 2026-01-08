@@ -5,6 +5,7 @@
 
 import { URLExt } from '@jupyterlab/coreutils';
 import { ServerConnection, Contents } from '@jupyterlab/services';
+import { showFileLockWarning } from './file_lock';
 
 /**
  * Document session endpoint provided by `jupyter_collaboration`
@@ -36,7 +37,16 @@ export interface ISessionModel {
    * Server session identifier
    */
   sessionId: string;
+  /**
+   * Whether the file is opened in read-only mode (locked by another user)
+   */
+  readOnly?: boolean;
+  /**
+   * Username of the user who has locked the file
+   */
+  lockedBy?: string;
 }
+
 
 /**
  * Call the API extension
@@ -114,7 +124,14 @@ export async function requestDocSession(
     throw new ServerConnection.ResponseError(response, data.message || data);
   }
 
-  return data;
+  const sessionData = data as ISessionModel;
+  if (sessionData.readOnly && sessionData.lockedBy) {
+    void showFileLockWarning(
+      sessionData.lockedBy
+    );
+  }
+
+  return sessionData;
 }
 
 export async function requestDocumentTimeline(

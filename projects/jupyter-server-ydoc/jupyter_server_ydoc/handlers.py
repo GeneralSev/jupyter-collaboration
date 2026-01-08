@@ -7,14 +7,16 @@ import asyncio
 import json
 import uuid
 from logging import Logger
+from pathlib import Path
 from typing import Any
-from uuid import uuid4
 from typing import cast
+from uuid import uuid4
 
 from jupyter_server.auth import authorized
 from jupyter_server.base.handlers import APIHandler, JupyterHandler
 from jupyter_server.utils import ensure_async
 from jupyter_ydoc import ydocs as YDOCS
+from pycrdt import Decoder
 from pycrdt import Doc, Encoder, UndoManager
 from pycrdt.store import BaseYStore
 from pycrdt.websocket import YRoom
@@ -23,6 +25,7 @@ from tornado.websocket import WebSocketHandler
 
 from .loaders import FileLoaderMapping
 from .rooms import DocumentRoom, TransientRoom
+from .sqlite_locks import SQLiteDocumentLockManager
 from .utils import (
     JUPYTER_COLLABORATION_AWARENESS_EVENTS_URI,
     JUPYTER_COLLABORATION_EVENTS_URI,
@@ -32,16 +35,16 @@ from .utils import (
     encode_file_path,
     room_id_from_encoded_path,
 )
-from .websocketserver import JupyterWebsocketServer, RoomNotFound
 from .utils import MessageType
-from pycrdt import Decoder
+from .websocketserver import JupyterWebsocketServer, RoomNotFound
 
 YFILE = YDOCS["file"]
-
 
 SERVER_SESSION = str(uuid.uuid4())
 FORK_DOCUMENTS = {}
 FORK_ROOMS: dict[str, dict[str, str]] = {}
+
+FOLDERS_FOR_FILE_LOCKING = ["Projects", "Personal"]
 
 
 class YDocWebSocketHandler(WebSocketHandler, JupyterHandler):
@@ -86,6 +89,40 @@ class YDocWebSocketHandler(WebSocketHandler, JupyterHandler):
 
         # Get room
         self._room_id: str = room_id_from_encoded_path(self.request.path)
+
+        # --------- START: manage file locking
+        self._is_read_only = False
+        self._lock_denied_reason = None
+
+        if self._room_id.count(":") >= 2:
+            file_format, file_type, file_id = decode_file_path(self._room_id)
+
+            file_rel_path = self._file_id_manager.get_path(file_id)  # relative to user home folder
+
+            file_rel_path_first_part = Path(file_rel_path).parts[0]
+
+            if file_rel_path_first_part in FOLDERS_FOR_FILE_LOCKING:
+                self._file_id = file_id
+                self._file_type = file_type
+                self._lock_owner = self.current_user.username
+                self._lock_key = f"{file_type}:{file_rel_path}"
+
+                lock_mgr: SQLiteDocumentLockManager = self.settings["collaborative_lock_manager"]
+
+                acquired, info = await lock_mgr.try_acquire(self._lock_key, self._lock_owner)
+                if not acquired:
+                    self._is_read_only = True
+                    self._lock_denied_reason = f"File currently in use by {info.owner.upper()}; opened in read-only mode."
+                    self.log.info(
+                        "Opening in READ-ONLY mode: user=%s key=%s locked_by=%s",
+                        self._lock_owner, self._lock_key, getattr(info, "owner", None)
+                    )
+                    # Don't return, continue with room initialization
+                else:
+                    # Start heartbeat for this connection (only if we got the lock)
+                    self._lock_mgr = lock_mgr
+                    self._lock_heartbeat_task = asyncio.create_task(self._heartbeat_lock())
+        # --------- END: manage file locking
 
         async with self._room_lock(self._room_id):
             if self._websocket_server.room_exists(self._room_id):
@@ -132,6 +169,7 @@ class YDocWebSocketHandler(WebSocketHandler, JupyterHandler):
                         self.log,
                         exception_handler=exception_logger,
                         save_delay=self._document_save_delay,
+                        read_only=self._is_read_only,
                     )
 
                 else:
@@ -233,6 +271,8 @@ class YDocWebSocketHandler(WebSocketHandler, JupyterHandler):
             # Close the connection if the document session expired
             session_id = self.get_query_argument("sessionId", "")
             if SERVER_SESSION != session_id:
+                if not self._is_read_only:
+                    await self._release_doc_lock_best_effort()
                 self.close(
                     1003,
                     f"Document session {session_id} expired. You need to reload this browser tab.",
@@ -248,10 +288,11 @@ class YDocWebSocketHandler(WebSocketHandler, JupyterHandler):
                     await self.room.initialize()
                 self._emit_awareness_event(self.current_user.username, "join")
             except Exception as e:
+                if not self._is_read_only:
+                    await self._release_doc_lock_best_effort()
                 _, _, file_id = decode_file_path(self._room_id)
                 file = self._file_loaders[file_id]
 
-                # Close websocket and propagate error.
                 if isinstance(e, web.HTTPError):
                     self.log.error(f"File {file.path} not found.\n{e!r}", exc_info=e)
                     self.close(1004, f"File {file.path} not found.")
@@ -263,9 +304,9 @@ class YDocWebSocketHandler(WebSocketHandler, JupyterHandler):
                     )
 
                 # Clean up the room and delete the file loader
-                if len(self.room.clients) == 0 or self.room.clients == {self}:
+                if len(self.room.clients) == 0 or self.room.clients == {self} or self._is_read_only:
                     self._message_queue.put_nowait(b"")
-                    self._cleanup_delay = 0
+                    self._cleanup_delay = 0  # to ensure local changes don't linger after opening files in read-only mode
                     await self._clean_room()
 
             self._emit(LogLevel.INFO, "initialize", "New client connected.")
@@ -304,6 +345,24 @@ class YDocWebSocketHandler(WebSocketHandler, JupyterHandler):
                     "type": "save",
                     "responseTo": save_id,
                 }
+                
+                # Check for read-only mode *before* attempting save
+                if getattr(self, "_is_read_only", False):
+                    reason = getattr(self, "_lock_denied_reason", "")
+                    if reason:
+                        error_msg = f"{reason}\n\nSaving is not allowed."  # This is shown on pressing save.
+                    else:
+                        error_msg = "File currently in use by another user. Saving is not allowed."
+                        
+                    await self.send(
+                        self._encode_json_message({
+                            **save_reply, 
+                            "status": "failed",
+                            "error": error_msg
+                        })
+                    )
+                    return
+
                 try:
                     room = cast(DocumentRoom, self.room)
                     save_task = room._save_to_disc()
@@ -331,12 +390,57 @@ class YDocWebSocketHandler(WebSocketHandler, JupyterHandler):
         encoder.write_var_string(json.dumps(message))
         return encoder.to_bytes()
 
+    async def _heartbeat_lock(self) -> None:
+        interval = float(self.settings.get("collaborative_heartbeat_interval_seconds", 10))
+
+        while True:
+            try:
+                await asyncio.sleep(interval)
+            except asyncio.CancelledError:
+                return
+
+            try:
+                ok = await self._lock_mgr.heartbeat(self._lock_key, self._lock_owner)
+                if not ok:
+                    # If heartbeat fails, lock is gone or stolen
+                    return
+            except Exception:
+                # don't crash the handler
+                return
+
+    async def _release_doc_lock_best_effort(self) -> None:
+        task = getattr(self, "_lock_heartbeat_task", None)
+        if task is not None:
+            task.cancel()
+
+        lock_mgr = getattr(self, "_lock_mgr", None)
+        lock_key = getattr(self, "_lock_key", None)
+        lock_owner = getattr(self, "_lock_owner", None)
+        if lock_mgr and lock_key and lock_owner:
+            try:
+                await lock_mgr.release(lock_key, lock_owner)
+            except Exception:
+                # best effort
+                pass
+
     def on_close(self) -> None:
         """
         On connection close.
         """
-        # stop serving this client
         self._message_queue.put_nowait(b"")
+
+        # Stop heartbeat
+        task = getattr(self, "_lock_heartbeat_task", None)
+        if task is not None:
+            task.cancel()
+
+        if getattr(self, "_is_read_only", False):
+            # instantly clean room if document was opened in read-only mode
+            self._cleanup_delay = 0
+        else:
+            asyncio.create_task(self._release_doc_lock_best_effort())
+
+        # stop serving this client
         if isinstance(self.room, DocumentRoom) and self.room.clients == {self}:
             # no client in this room after we disconnect
             # keep the document for a while in case someone reconnects
@@ -451,37 +555,49 @@ class DocSessionHandler(APIHandler):
         file_id_manager = self.settings["file_id_manager"]
 
         idx = file_id_manager.get_id(path)
-        if idx is not None:
-            # index already exists
-            self.log.info("Request for Y document '%s' with room ID: %s", path, idx)
-            data = json.dumps(
-                {
-                    "format": format,
-                    "type": content_type,
-                    "fileId": idx,
-                    "sessionId": SERVER_SESSION,
-                }
-            )
-            self.set_status(200)
-            return self.finish(data)
-
-        # try indexing
-        idx = file_id_manager.index(path)
+        created = False
+        
         if idx is None:
-            # file does not exists
-            raise web.HTTPError(404, f"File {path!r} does not exist")
+            # try indexing
+            idx = file_id_manager.index(path)
+            if idx is None:
+                # file does not exists
+                raise web.HTTPError(404, f"File {path!r} does not exist")
+            created = True
 
-        # index successfully created
+        # Check if file is locked (but don't fail - just track it)
+        is_read_only = False
+        lock_owner = None
+        file_rel_path = file_id_manager.get_path(idx)
+
+        if file_rel_path is not None:
+            file_rel_path_first_part = Path(file_rel_path).parts[0]
+            if file_rel_path_first_part in FOLDERS_FOR_FILE_LOCKING:
+                lock_mgr: SQLiteDocumentLockManager = self.settings["collaborative_lock_manager"]
+                owner = self.current_user.username
+                lock_key = f"{content_type}:{file_rel_path}"
+
+                acquired, info = await lock_mgr.try_acquire(lock_key, owner)
+                if not acquired:
+                    is_read_only = True
+                    lock_owner = info.owner
+                else:
+                    # Release immediately - session endpoint should be non-locking
+                    await lock_mgr.release(lock_key, owner)
+        
         self.log.info("Request for Y document '%s' with room ID: %s", path, idx)
+        # This is used to show warning message on opening a locked file in `packages/docprovider/src/requests.ts`
         data = json.dumps(
             {
                 "format": format,
                 "type": content_type,
                 "fileId": idx,
                 "sessionId": SERVER_SESSION,
+                "readOnly": is_read_only,
+                "lockedBy": lock_owner,
             }
         )
-        self.set_status(201)
+        self.set_status(201 if created else 200)
         return self.finish(data)
 
 

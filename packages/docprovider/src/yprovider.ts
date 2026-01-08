@@ -7,7 +7,6 @@ import { IDocumentProvider } from '@jupyter/collaborative-drive';
 import { showErrorMessage, Dialog } from '@jupyterlab/apputils';
 import { User } from '@jupyterlab/services';
 import { TranslationBundle } from '@jupyterlab/translation';
-
 import { PromiseDelegate } from '@lumino/coreutils';
 import { Signal } from '@lumino/signaling';
 
@@ -34,6 +33,7 @@ export class WebSocketProvider implements IDocumentProvider, IForkProvider {
    */
   constructor(options: WebSocketProvider.IOptions) {
     this._isDisposed = false;
+    this._isReadOnly = false;
     this._path = options.path;
     this._contentType = options.contentType;
     this._format = options.format;
@@ -63,11 +63,19 @@ export class WebSocketProvider implements IDocumentProvider, IForkProvider {
   }
 
   /**
+   * Test whether the document is in read-only mode (locked by another user).
+   */
+  get isReadOnly(): boolean {
+    return this._isReadOnly;
+  }
+
+  /**
    * A promise that resolves when the document provider is ready.
    */
   get ready(): Promise<void> {
     return this._ready.promise;
   }
+
   get contentType(): string {
     return this._contentType;
   }
@@ -75,6 +83,7 @@ export class WebSocketProvider implements IDocumentProvider, IForkProvider {
   get format(): string {
     return this._format;
   }
+
   /**
    * Dispose of the resources held by the object.
    */
@@ -85,6 +94,7 @@ export class WebSocketProvider implements IDocumentProvider, IForkProvider {
     this._isDisposed = true;
     this._yWebsocketProvider?.off('connection-close', this._onConnectionClosed);
     this._yWebsocketProvider?.off('sync', this._onSync);
+    this._yWebsocketProvider?.off('message', this._onMessage);
     this._yWebsocketProvider?.destroy();
     this._disconnect();
     Signal.clearData(this);
@@ -99,8 +109,16 @@ export class WebSocketProvider implements IDocumentProvider, IForkProvider {
     const session = await requestDocSession(
       this._format,
       this._contentType,
-      this._path
+      this._path,
     );
+
+    // Set read-only mode based on session response. Used in:
+    // -> `packages/docprovider-extension/src/readOnlyPlugin.ts`
+    // -> `packages/docprovider/src/component.tsx`
+    if (session.readOnly) {
+      this._isReadOnly = true;
+      console.log(`Document opened in read-only mode`);
+    }
 
     this._yWebsocketProvider = new YWebsocketProvider(
       this._serverUrl,
@@ -115,6 +133,7 @@ export class WebSocketProvider implements IDocumentProvider, IForkProvider {
 
     this._yWebsocketProvider.on('sync', this._onSync);
     this._yWebsocketProvider.on('connection-close', this._onConnectionClosed);
+    this._yWebsocketProvider.on('message', this._onMessage);
   }
 
   async connectToForkDoc(forkRoomId: string, sessionId: string): Promise<void> {
@@ -134,9 +153,11 @@ export class WebSocketProvider implements IDocumentProvider, IForkProvider {
   get wsProvider() {
     return this._yWebsocketProvider;
   }
+
   private _disconnect(): void {
     this._yWebsocketProvider?.off('connection-close', this._onConnectionClosed);
     this._yWebsocketProvider?.off('sync', this._onSync);
+    this._yWebsocketProvider?.off('message', this._onMessage);
     this._yWebsocketProvider?.destroy();
     this._yWebsocketProvider = null;
   }
@@ -144,6 +165,30 @@ export class WebSocketProvider implements IDocumentProvider, IForkProvider {
   private _onUserChanged(user: User.IManager): void {
     this._awareness.setLocalStateField('user', user.identity);
   }
+
+  private _onMessage = (data: ArrayBuffer): void => {
+    try {
+      // Decode the message to check if it's a warning about read-only mode
+      const decoder = new TextDecoder();
+      const text = decoder.decode(data);
+
+      // Try to parse as JSON (server sends JSON messages for warnings)
+      try {
+        const message = JSON.parse(text);
+        if (message.type === 'warning' && message.readOnly) {
+          console.warn('Read-only mode warning from server:', message.message);
+          // Update read-only state if not already set
+          if (!this._isReadOnly) {
+            this._isReadOnly = true;
+          }
+        }
+      } catch {
+        // Not a JSON message, ignore
+      }
+    } catch (error) {
+      console.error('Error processing message:', error);
+    }
+  };
 
   private _onConnectionClosed = (event: any): void => {
     if (event.code === 1003) {
@@ -175,6 +220,7 @@ export class WebSocketProvider implements IDocumentProvider, IForkProvider {
   private _contentType: string;
   private _format: string;
   private _isDisposed: boolean;
+  private _isReadOnly: boolean;
   private _path: string;
   private _ready = new PromiseDelegate<void>();
   private _serverUrl: string;

@@ -89,19 +89,24 @@ class FileLoader:
                 self._log.info(f"file watcher for '{self.file_id}' is cancelled now")
 
     def observe(
-        self,
-        id: str,
-        callback: Callable[[], Coroutine[Any, Any, None]],
-        filepath_callback: Callable[[], Coroutine[Any, Any, None] | None] | None = None,
+            self,
+            id: str,
+            callback: Callable[[], Coroutine[Any, Any, None]] | None,
+            filepath_callback: Callable[[], Coroutine[Any, Any, None] | None] | None = None,
     ) -> None:
         """
         Subscribe to the file to get notified about out-of-band file changes.
 
             Parameters:
                     id (str): Room ID
-                    callback (Callable): Callback for notifying the room.
+                    callback (Callable | None): Callback for notifying the room about content changes.
+                                                Can be None for read-only mode (no content sync).
+                    filepath_callback (Callable | None): Callback for notifying about filepath changes.
         """
-        self._subscriptions[id] = callback
+        # Only add content change callback if provided (not None)
+        if callback is not None:
+            self._subscriptions[id] = callback
+
         if filepath_callback is not None:
             self._filepath_subscriptions[id] = filepath_callback
 
@@ -112,8 +117,10 @@ class FileLoader:
             Parameters:
                 id (str): Room ID
         """
-        del self._subscriptions[id]
-        if id in self._filepath_subscriptions.keys():
+        # Remove from subscriptions if present
+        if id in self._subscriptions:
+            del self._subscriptions[id]
+        if id in self._filepath_subscriptions:
             del self._filepath_subscriptions[id]
 
     async def load_content(self, format: str, file_type: str) -> dict[str, Any]:

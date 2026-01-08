@@ -188,7 +188,8 @@ export const statusBarTimeline: JupyterFrontEndPlugin<void> = {
 
       const updateTimelineForDocument = async (
         documentPath: string,
-        documentId: string
+        documentId: string,
+        onSave: () => Promise<void>
       ) => {
         if (!documentId) {
           return;
@@ -221,7 +222,8 @@ export const statusBarTimeline: JupyterFrontEndPlugin<void> = {
           forkProvider,
           forkProvider.contentType,
           forkProvider.format,
-          DOCUMENT_TIMELINE_URL
+          DOCUMENT_TIMELINE_URL,
+          onSave
         );
 
         const elt = document.getElementById('jp-slider-status-bar');
@@ -244,7 +246,8 @@ export const statusBarTimeline: JupyterFrontEndPlugin<void> = {
               currentWidget.context.path,
               currentWidget.context.model.sharedModel.getState(
                 'document_id'
-              ) as string
+              ) as string,
+              () => currentWidget.context.save()
             );
           }
         });

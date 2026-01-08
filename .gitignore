@@ -132,3 +132,8 @@ docs/source/changelog.md
 !.yarn/versions
 packages/docprovider/junit.xml
 .jupyter_ystore.db
+
+
+.idea/
+
+.jupyter_releaser_checkout/
