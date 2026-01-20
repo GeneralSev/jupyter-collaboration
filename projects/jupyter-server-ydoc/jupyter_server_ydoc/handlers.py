@@ -443,6 +443,14 @@ class YDocWebSocketHandler(WebSocketHandler, JupyterHandler):
         # stop serving this client
         if isinstance(self.room, DocumentRoom) and self.room.clients == {self}:
             # no client in this room after we disconnect
+
+            # For chat files, reset ready flag to force reinitialization on reopen
+            _, _, file_id = decode_file_path(self._room_id)
+            file = self._file_loaders[file_id]
+            if file.path.endswith('.chat'):
+                self.room.ready = False
+                self.log.info("Reset ready flag for chat room: %s", self._room_id)
+
             # keep the document for a while in case someone reconnects
             self.log.info("Cleaning room: %s", self._room_id)
             self.room.cleaner = asyncio.create_task(self._clean_room())
