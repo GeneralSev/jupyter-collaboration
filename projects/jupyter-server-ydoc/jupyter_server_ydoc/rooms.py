@@ -116,8 +116,7 @@ class DocumentRoom(YRoom):
             It is important to set the ready property in the parent class (`self.ready = True`),
             this setter will subscribe for updates on the shared document.
         """
-        # For chat files, always reload to ensure fresh state when reopening
-        if self.ready and not self._file.path.endswith('.chat'):
+        if self.ready:
             return
 
         self.log.info("Initializing room %s", self._room_id)
