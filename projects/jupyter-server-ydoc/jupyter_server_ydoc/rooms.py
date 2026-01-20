@@ -343,6 +343,10 @@ class DocumentRoom(YRoom):
             # the document is being saved, cancel that
             saving_document.cancel()
 
+        # Use save delay of 0 for .chat files
+        if self._file.path.endswith('.chat'):
+            save_delay = 0
+
         # all async code (i.e. await statements) must be part of this try/except block
         # because this coroutine is run in a cancellable task and cancellation is handled here
 
