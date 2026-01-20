@@ -440,13 +440,6 @@ class YDocWebSocketHandler(WebSocketHandler, JupyterHandler):
         else:
             asyncio.create_task(self._release_doc_lock_best_effort())
 
-        # For chat files, clean up immediately to ensure fresh state on reopening
-        if isinstance(self.room, DocumentRoom):
-            _, _, file_id = decode_file_path(self._room_id)
-            file = self._file_loaders[file_id]
-            if file.path.endswith('.chat'):
-                self._cleanup_delay = 0
-
         # stop serving this client
         if isinstance(self.room, DocumentRoom) and self.room.clients == {self}:
             # no client in this room after we disconnect
