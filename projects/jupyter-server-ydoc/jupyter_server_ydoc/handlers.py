@@ -211,7 +211,7 @@ class YDocWebSocketHandler(WebSocketHandler, JupyterHandler):
         ywebsocket_server: JupyterWebsocketServer,
         file_loaders: FileLoaderMapping,
         ystore_class: type[BaseYStore],
-        document_cleanup_delay: float | None = 60.0,
+        document_cleanup_delay: float | None = 0.0,
         document_save_delay: float | None = 1.0,
     ) -> None:
         self._background_tasks = set()
@@ -440,17 +440,18 @@ class YDocWebSocketHandler(WebSocketHandler, JupyterHandler):
         else:
             asyncio.create_task(self._release_doc_lock_best_effort())
 
+        # For chat files, reset ready flag to force reinitialization on reopen
+        _, _, file_id = decode_file_path(self._room_id)
+        file = self._file_loaders[file_id]
+        if isinstance(self.room, DocumentRoom) and file.path.endswith('.chat'):
+            self.room.ready = False
+            self.log.info("Reset ready flag for chat room: %s", self._room_id)
+            self.log.info("Cleaning room: %s", self._room_id)
+            self.room.cleaner = asyncio.create_task(self._clean_room())
+
         # stop serving this client
         if isinstance(self.room, DocumentRoom) and self.room.clients == {self}:
             # no client in this room after we disconnect
-
-            # For chat files, reset ready flag to force reinitialization on reopen
-            _, _, file_id = decode_file_path(self._room_id)
-            file = self._file_loaders[file_id]
-            if file.path.endswith('.chat'):
-                self.room.ready = False
-                self.log.info("Reset ready flag for chat room: %s", self._room_id)
-
             # keep the document for a while in case someone reconnects
             self.log.info("Cleaning room: %s", self._room_id)
             self.room.cleaner = asyncio.create_task(self._clean_room())
