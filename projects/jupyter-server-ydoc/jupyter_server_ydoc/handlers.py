@@ -448,6 +448,7 @@ class YDocWebSocketHandler(WebSocketHandler, JupyterHandler):
             if file.path.endswith('.chat'):
                 self.room.ready = False
                 self.log.info("Reset ready flag for chat room on client disconnect: %s", self._room_id)
+                self.room.cleaner = asyncio.create_task(self._clean_room())
 
         # stop serving this client
         if isinstance(self.room, DocumentRoom) and self.room.clients == {self}:
@@ -497,11 +498,6 @@ class YDocWebSocketHandler(WebSocketHandler, JupyterHandler):
         await asyncio.sleep(self._cleanup_delay)
 
         async with self._room_lock(self._room_id):
-            # Check if room still exists and hasn't been cleaned up by another task
-            if not self._websocket_server.room_exists(self._room_id):
-                self.log.info("Room %s already cleaned up, skipping", self._room_id)
-                return
-            
             # Remove the room from the websocket server
             self.log.info("Deleting Y document from memory: %s", self._room_id)
             await self._websocket_server.delete_room(room=self.room)
