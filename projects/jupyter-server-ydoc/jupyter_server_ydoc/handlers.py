@@ -440,14 +440,14 @@ class YDocWebSocketHandler(WebSocketHandler, JupyterHandler):
         else:
             asyncio.create_task(self._release_doc_lock_best_effort())
 
-        # For chat files, reset ready flag to force reinitialization on reopen
-        _, _, file_id = decode_file_path(self._room_id)
-        file = self._file_loaders[file_id]
-        if isinstance(self.room, DocumentRoom) and file.path.endswith('.chat'):
-            self.room.ready = False
-            self.log.info("Reset ready flag for chat room: %s", self._room_id)
-            self.log.info("Cleaning room: %s", self._room_id)
-            self.room.cleaner = asyncio.create_task(self._clean_room())
+        # For chat files, always reset ready flag when any client disconnects
+        # This ensures the room reinitializes on reopen even if AI persona is still connected
+        if isinstance(self.room, DocumentRoom):
+            _, _, file_id = decode_file_path(self._room_id)
+            file = self._file_loaders[file_id]
+            if file.path.endswith('.chat'):
+                self.room.ready = False
+                self.log.info("Reset ready flag for chat room on client disconnect: %s", self._room_id)
 
         # stop serving this client
         if isinstance(self.room, DocumentRoom) and self.room.clients == {self}:
@@ -497,6 +497,11 @@ class YDocWebSocketHandler(WebSocketHandler, JupyterHandler):
         await asyncio.sleep(self._cleanup_delay)
 
         async with self._room_lock(self._room_id):
+            # Check if room still exists and hasn't been cleaned up by another task
+            if not self._websocket_server.room_exists(self._room_id):
+                self.log.info("Room %s already cleaned up, skipping", self._room_id)
+                return
+            
             # Remove the room from the websocket server
             self.log.info("Deleting Y document from memory: %s", self._room_id)
             await self._websocket_server.delete_room(room=self.room)
