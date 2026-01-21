@@ -440,6 +440,16 @@ class YDocWebSocketHandler(WebSocketHandler, JupyterHandler):
         else:
             asyncio.create_task(self._release_doc_lock_best_effort())
 
+        # For chat files, always reset ready flag when any client disconnects
+        # This ensures the room reinitializes on reopen even if AI persona is still connected
+        if isinstance(self.room, DocumentRoom):
+            _, _, file_id = decode_file_path(self._room_id)
+            file = self._file_loaders[file_id]
+            if file.path.endswith('.chat'):
+                self.room.ready = False
+                self.log.info("Reset ready flag for chat room on client disconnect: %s", self._room_id)
+                self.room.cleaner = asyncio.create_task(self._clean_room())
+
         # stop serving this client
         if isinstance(self.room, DocumentRoom) and self.room.clients == {self}:
             # no client in this room after we disconnect
