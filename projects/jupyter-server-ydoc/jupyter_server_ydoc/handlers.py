@@ -211,7 +211,7 @@ class YDocWebSocketHandler(WebSocketHandler, JupyterHandler):
         ywebsocket_server: JupyterWebsocketServer,
         file_loaders: FileLoaderMapping,
         ystore_class: type[BaseYStore],
-        document_cleanup_delay: float | None = 60.0,
+        document_cleanup_delay: float | None = 0.0,
         document_save_delay: float | None = 1.0,
     ) -> None:
         self._background_tasks = set()
