@@ -16,6 +16,7 @@ import { Awareness } from 'y-protocols/awareness';
 import { WebsocketProvider as YWebsocketProvider } from 'y-websocket';
 
 import { requestDocSession } from './requests';
+import { showFileLockWarning } from './file_lock';
 import { IForkProvider } from './ydrive';
 
 /**
@@ -118,6 +119,19 @@ export class WebSocketProvider implements IDocumentProvider, IForkProvider {
     if (session.readOnly) {
       this._isReadOnly = true;
       console.log(`Document opened in read-only mode`);
+    }
+
+    // Show the lock warning only after the document is fully synced.
+    // Showing it during _connect() (before the WebSocket syncs) causes
+    // the modal to block while TOC and other components initialize,
+    // resulting in "cannot read properties of undefined" errors in production.
+    if (session.readOnly && session.lockedBy) {
+      const lockedBy = session.lockedBy;
+      this._ready.promise.then(() => {
+        showFileLockWarning(lockedBy).catch(err => {
+          console.error('Failed to show file lock warning dialog:', err);
+        });
+      });
     }
 
     this._yWebsocketProvider = new YWebsocketProvider(

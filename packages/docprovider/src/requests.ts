@@ -5,7 +5,6 @@
 
 import { URLExt } from '@jupyterlab/coreutils';
 import { ServerConnection, Contents } from '@jupyterlab/services';
-import { showFileLockWarning } from './file_lock';
 
 /**
  * Document session endpoint provided by `jupyter_collaboration`
@@ -124,16 +123,7 @@ export async function requestDocSession(
     throw new ServerConnection.ResponseError(response, data.message || data);
   }
 
-  const sessionData = data as ISessionModel;
-  if (sessionData.readOnly && sessionData.lockedBy) {
-    try {
-      await showFileLockWarning(sessionData.lockedBy);
-    } catch (err) {
-      console.error('Failed to show file lock warning dialog:', err);
-    }
-  }
-
-  return sessionData;
+  return data as ISessionModel;
 }
 
 export async function requestDocumentTimeline(
