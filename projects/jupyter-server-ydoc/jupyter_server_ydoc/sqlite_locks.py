@@ -64,6 +64,10 @@ class SQLiteDocumentLockManager:
     async def heartbeat(self, lock_key: str, owner: str) -> bool:
         return await asyncio.to_thread(self._heartbeat_sync, lock_key, owner)
 
+    async def get_lock(self, lock_key: str) -> Optional[LockInfo]:
+        """Read the current lock state without acquiring or modifying it."""
+        return await asyncio.to_thread(self._get_lock_sync, lock_key)
+
     # ---------- internal sync implementation ----------
     def _connect(self) -> sqlite3.Connection:
         con = sqlite3.connect(self.db_path, timeout=self.busy_timeout_ms / 1000.0)
@@ -279,5 +283,39 @@ class SQLiteDocumentLockManager:
         except Exception:
             con.rollback()
             raise
+        finally:
+            con.close()
+
+    def _get_lock_sync(self, lock_key: str) -> Optional[LockInfo]:
+        """Read the current (non-expired) lock for lock_key, or None."""
+        now = time.time()
+        con = self._connect()
+        try:
+            if self.cleanup_on_access:
+                with con:
+                    self._purge_expired_in_tx(con, now)
+
+            row = con.execute(
+                "SELECT lock_key, owner, acquired_at, heartbeat_at, connections "
+                "FROM doc_locks WHERE lock_key=?",
+                (lock_key,),
+            ).fetchone()
+
+            if row is None:
+                return None
+
+            info = LockInfo(
+                lock_key=row["lock_key"],
+                owner=row["owner"],
+                acquired_at=row["acquired_at"],
+                heartbeat_at=row["heartbeat_at"],
+                connections=row["connections"],
+            )
+
+            # Double-check in case cleanup_on_access is False
+            if self._is_expired(info.heartbeat_at, now=now):
+                return None
+
+            return info
         finally:
             con.close()
