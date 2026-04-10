@@ -577,13 +577,12 @@ class DocSessionHandler(APIHandler):
                 owner = self.current_user.username
                 lock_key = f"{content_type}:{file_rel_path}"
 
-                acquired, info = await lock_mgr.try_acquire(lock_key, owner)
-                if not acquired:
+                # Read the lock state without acquiring it to avoid a race
+                # window between acquire-then-release and the WebSocket lock.
+                existing = await lock_mgr.get_lock(lock_key)
+                if existing is not None and existing.owner != owner:
                     is_read_only = True
-                    lock_owner = info.owner
-                else:
-                    # Release immediately - session endpoint should be non-locking
-                    await lock_mgr.release(lock_key, owner)
+                    lock_owner = existing.owner
         
         self.log.info("Request for Y document '%s' with room ID: %s", path, idx)
         # This is used to show warning message on opening a locked file in `packages/docprovider/src/requests.ts`
