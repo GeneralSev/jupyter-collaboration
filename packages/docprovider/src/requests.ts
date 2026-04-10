@@ -126,9 +126,11 @@ export async function requestDocSession(
 
   const sessionData = data as ISessionModel;
   if (sessionData.readOnly && sessionData.lockedBy) {
-    await showFileLockWarning(
-      sessionData.lockedBy
-    );
+    try {
+      await showFileLockWarning(sessionData.lockedBy);
+    } catch (err) {
+      console.error('Failed to show file lock warning dialog:', err);
+    }
   }
 
   return sessionData;
