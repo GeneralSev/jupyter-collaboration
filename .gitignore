@@ -135,5 +135,6 @@ packages/docprovider/junit.xml
 
 
 .idea/
+.claude/
 
 .jupyter_releaser_checkout/

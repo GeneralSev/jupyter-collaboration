@@ -126,7 +126,7 @@ export async function requestDocSession(
 
   const sessionData = data as ISessionModel;
   if (sessionData.readOnly && sessionData.lockedBy) {
-    void showFileLockWarning(
+    await showFileLockWarning(
       sessionData.lockedBy
     );
   }
