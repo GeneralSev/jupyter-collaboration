@@ -1,6 +1,6 @@
 {
   "name": "@jupyter/docprovider-extension",
-  "version": "4.2.0",
+  "version": "4.2.0-twd.1",
   "description": "JupyterLab - Collaborative Shared Models",
   "keywords": [
     "jupyter",
