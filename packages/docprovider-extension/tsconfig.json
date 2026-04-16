@@ -3,10 +3,6 @@
   "compilerOptions": {
     "outDir": "lib",
     "rootDir": "src",
-    "baseUrl": ".",
-    "paths": {
-      "@jupyter/docprovider": ["../docprovider/lib/index"]
-    }
   },
   "include": ["src/*"]
 }
