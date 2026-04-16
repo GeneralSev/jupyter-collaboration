@@ -2,11 +2,10 @@
   "extends": "../../tsconfig.json",
   "compilerOptions": {
     "outDir": "lib",
-    "rootDir": "src",
-    "baseUrl": ".",
-    "paths": {
-      "@jupyter/docprovider": ["../docprovider/lib/index"]
-    }
+    "rootDir": "src"
   },
-  "include": ["src/*"]
+  "include": ["src/*"],
+  "references": [
+    { "path": "../docprovider" }
+  ]
 }
