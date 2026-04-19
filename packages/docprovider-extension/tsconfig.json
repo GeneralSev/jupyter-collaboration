@@ -9,7 +9,4 @@
     }
   },
   "include": ["src/*"],
-  "references": [
-    { "path": "../docprovider" }
-  ]
 }
