@@ -15,8 +15,14 @@ LERNA_CMD = "jlpm run lerna version --no-push --force-publish --no-git-tag-versi
 
 
 def strip_twd(version: str) -> str:
-    """Remove any existing +twd local version segment."""
+    """Remove any existing +twd local version segment (Python)."""
     return version.split("+")[0]
+
+
+def strip_js_twd(version: str) -> str:
+    """Remove any existing -twd.N prerelease segment (JS)."""
+    import re
+    return re.sub(r"-twd\.\d+$", "", version)
 
 
 def increment_version(current, spec):
@@ -85,16 +91,20 @@ def bump(force, skip_if_dirty, twd, spec):
         current = strip_twd(raw)
 
     if spec is not None:
-        version = parse_version(increment_version(strip_twd(current), spec))
+        py_version = parse_version(increment_version(strip_twd(current), spec))
+        # Derive JS version from the incremented Python version
+        js_version = f"{py_version.major}.{py_version.minor}.{py_version.micro}"
+        if py_version.pre:
+            p, x = py_version.pre
+            p = p.replace("a", "alpha").replace("b", "beta")
+            js_version += f"-{p}.{x}"
     else:
-        version = parse_version(current)
+        # twd-only: read JS version independently from the packages directory
+        js_pkg = next(HERE.glob("packages/*/package.json"))
+        with js_pkg.open() as f:
+            js_pkg_data = json.load(f)
+        js_version = strip_js_twd(js_pkg_data["version"])
 
-    # convert the Python version
-    js_version = f"{version.major}.{version.minor}.{version.micro}"
-    if version.pre:
-        p, x = version.pre
-        p = p.replace("a", "alpha").replace("b", "beta")
-        js_version += f"-{p}.{x}"
     if twd is not None:
         js_version += f"-twd.{twd}"
 
