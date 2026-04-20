@@ -74,11 +74,20 @@ def bump(force, skip_if_dirty, twd, spec):
             return
         raise Exception("Must be in a clean git state with no untracked files")
 
-    current = get_version()
+    HERE = Path(__file__).parent.parent.resolve()
+
+    if spec is not None:
+        current = get_version()
+    else:
+        # twd-only: read base version from a project _version.py directly
+        version_file = next(HERE.glob("projects/**/_version.py"))
+        raw = version_file.read_text().splitlines()[0].split(" = ")[1].strip("'\"")
+        current = strip_twd(raw)
+
     if spec is not None:
         version = parse_version(increment_version(strip_twd(current), spec))
     else:
-        version = parse_version(strip_twd(current))
+        version = parse_version(current)
 
     # convert the Python version
     js_version = f"{version.major}.{version.minor}.{version.micro}"
@@ -94,8 +103,6 @@ def bump(force, skip_if_dirty, twd, spec):
     if force:
         lerna_cmd += " --yes"
     run(lerna_cmd)
-
-    HERE = Path(__file__).parent.parent.resolve()
 
     project_pins = {}
 
