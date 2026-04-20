@@ -7,10 +7,16 @@ from pathlib import Path
 import click
 import tomlkit
 from jupyter_releaser.util import get_version, run
-from pkg_resources import parse_version, Requirement
+from packaging.requirements import Requirement
+from packaging.version import Version as parse_version
 
 
 LERNA_CMD = "jlpm run lerna version --no-push --force-publish --no-git-tag-version"
+
+
+def strip_twd(version: str) -> str:
+    """Remove any existing +twd local version segment."""
+    return version.split("+")[0]
 
 
 def increment_version(current, spec):
@@ -56,8 +62,12 @@ def increment_version(current, spec):
 @click.command()
 @click.option("--force", default=False, is_flag=True)
 @click.option("--skip-if-dirty", default=False, is_flag=True)
-@click.argument("spec", nargs=1)
-def bump(force, skip_if_dirty, spec):
+@click.option("--twd", default=None, type=int, help="TWD build suffix number (e.g. 30 → +twd30 for Python, -twd.30 for JS)")
+@click.argument("spec", nargs=1, required=False, default=None)
+def bump(force, skip_if_dirty, twd, spec):
+    if spec is None and twd is None:
+        raise click.UsageError("Must provide spec and/or --twd")
+
     status = run("git status --porcelain").strip()
     if len(status) > 0:
         if skip_if_dirty:
@@ -65,7 +75,10 @@ def bump(force, skip_if_dirty, spec):
         raise Exception("Must be in a clean git state with no untracked files")
 
     current = get_version()
-    version = parse_version(increment_version(current, spec))
+    if spec is not None:
+        version = parse_version(increment_version(strip_twd(current), spec))
+    else:
+        version = parse_version(strip_twd(current))
 
     # convert the Python version
     js_version = f"{version.major}.{version.minor}.{version.micro}"
@@ -73,6 +86,8 @@ def bump(force, skip_if_dirty, spec):
         p, x = version.pre
         p = p.replace("a", "alpha").replace("b", "beta")
         js_version += f"-{p}.{x}"
+    if twd is not None:
+        js_version += f"-twd.{twd}"
 
     # bump the JS packages
     lerna_cmd = f"{LERNA_CMD} {js_version}"
@@ -93,8 +108,13 @@ def bump(force, skip_if_dirty, spec):
                 f"Version file {version_file} has unexpected content;"
                 f" expected __version__ assignment in the first line, found {variable}"
             )
-        current = current.strip("'\"")
-        version_spec = increment_version(current, spec)
+        current = strip_twd(current.strip("'\""))
+        if spec is not None:
+            version_spec = increment_version(current, spec)
+        else:
+            version_spec = current
+        if twd is not None:
+            version_spec += f"+twd{twd}"
         version_file.write_text(f'__version__ = "{version_spec}"\n')
         project = version_file.parent.name
         project_pins[project] = version_spec
@@ -111,12 +131,14 @@ def bump(force, skip_if_dirty, spec):
     dependencies = tomlkit.array()
     for key in sorted(project_pins):
         if key != metapackage.replace("-", "_"):
-            next_major = f"{parse_version(project_pins[key]).major + 1}"
+            # Use the base version (without local +twd suffix) for the upper bound
+            base_version = strip_twd(project_pins[key])
+            next_major = f"{parse_version(base_version).major + 1}"
             dependencies.add_line(key + ">=" + project_pins[key] + ",<" + next_major)
     # re-add other dependencies
     for dependency in old_dependencies:
-        requirement = Requirement.parse(dependency)
-        if requirement.project_name.replace("-", "_") not in project_pins:
+        requirement = Requirement(dependency)
+        if requirement.name.replace("-", "_") not in project_pins:
             dependencies.add_line(dependency)
     metapackage_toml.get("project").add("dependencies", dependencies.multiline(True))
     metapackage_toml_path.write_text(tomlkit.dumps(metapackage_toml))
