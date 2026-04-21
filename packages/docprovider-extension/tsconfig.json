@@ -8,5 +8,8 @@
       "@jupyter/docprovider": ["../docprovider/lib/index"]
     }
   },
-  "include": ["src/*"]
+  "include": ["src/*"],
+  "references": [
+    { "path": "../docprovider" }
+  ]
 }
