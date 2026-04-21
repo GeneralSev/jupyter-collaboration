@@ -15,7 +15,7 @@ LERNA_CMD = "jlpm run lerna version --no-push --force-publish --no-git-tag-versi
 
 
 def strip_twd(version: str) -> str:
-    """Remove any existing +twd local version segment (Python)."""
+    """Remove any existing +twdN local version segment (Python)."""
     return version.split("+")[0]
 
 
@@ -68,8 +68,8 @@ def increment_version(current, spec):
 @click.command()
 @click.option("--force", default=False, is_flag=True)
 @click.option("--skip-if-dirty", default=False, is_flag=True)
-@click.option("--twd", default=None, type=int, help="TWD build suffix number (e.g. 30 → +twd30 for Python, -twd.30 for JS)")
-@click.argument("spec", nargs=1, required=False, default=None)
+@click.option("--twd", default=None, type=int, help="TWD build suffix number added to version (e.g. 30 → +twd30 for Python, -twd.30 for JS)")
+@click.argument("spec", nargs=1, required=False, default=None, help="Version specifier: major, minor, patch, release, next, or an explicit version string")
 def bump(force, skip_if_dirty, twd, spec):
     if spec is None and twd is None:
         raise click.UsageError("Must provide spec and/or --twd")
